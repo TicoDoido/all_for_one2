@@ -59,7 +59,8 @@ if defined HIDDEN_IMPORT_ARGS (
 )
 
 echo [INFO] Iniciando build PyInstaller...
-pyinstaller ALL_FOR_ONE.py --onefile --clean --noconfirm !HIDDEN_IMPORT_ARGS!
+set "CORE_HIDDEN_IMPORTS=--hidden-import tkinter --hidden-import tkinter.filedialog --hidden-import xml.etree.ElementTree --hidden-import xmltree"
+pyinstaller ALL_FOR_ONE.py --onefile --clean --noconfirm !CORE_HIDDEN_IMPORTS! !HIDDEN_IMPORT_ARGS!
 
 if errorlevel 1 (
     echo [ERRO] Build falhou.

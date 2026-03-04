@@ -10,8 +10,10 @@ import subprocess
 import time
 import importlib.util
 from importlib.metadata import version, PackageNotFoundError
+import xml.etree.ElementTree as _element_tree
 
 sys.dont_write_bytecode = True
+sys.modules.setdefault("xmltree", _element_tree)
 
 # ==============================================================================
 # 1. VERIFICAÇÃO DE AMBIENTE E INSTALADOR AUTOMÁTICO (Roda antes do Flet)
@@ -342,10 +344,12 @@ def main(page: ft.Page):
         return txt.format(**kwargs) if kwargs else txt
     # --- Log ---
     log_column = ft.Column(scroll="always", expand=True)
+    log_history = []
     log_buffer = []
     last_update_time = [0]
    
     def log_ui(msg, color=COLOR_LOG_GREEN):
+        log_history.append(msg)
         log_buffer.append(msg)
         current_time = time.time()
         if color == COLOR_LOG_RED or (current_time - last_update_time[0]) > 0.1:
@@ -370,6 +374,14 @@ def main(page: ft.Page):
                 else:
                     try: log_column.scroll_to(offset=-1, duration=50)
                     except Exception: pass
+
+    def copy_log(_):
+        full_log = "".join(log_history).strip() or "(log vazio)"
+        try:
+            page.set_clipboard(full_log)
+            log_ui("\n[INFO] Log copiado para a área de transferência.\n", color=COLOR_LOG_YELLOW)
+        except Exception as e:
+            log_ui(f"\n[ERRO] Falha ao copiar log: {e}\n", color=COLOR_LOG_RED)
     manager = PluginManager(log_ui)
     # --- Componentes Principais ---
     plugin_content_area = ft.Column(expand=True, scroll="auto", spacing=12)
@@ -614,7 +626,14 @@ def main(page: ft.Page):
         content=ft.Column(controls=[
             plugin_content_area,
             ft.Container(height=10),
-            ft.Text(value=t("log_title"), size=9, color="grey", weight="bold"),
+            ft.Row(
+                controls=[
+                    ft.Text(value=t("log_title"), size=9, color="grey", weight="bold", expand=True),
+                    compat_icon_button(icon_name="content_copy", icon_color="#9CA3AF", icon_size=16, on_click=copy_log),
+                ],
+                alignment=MAIN_SPACE_BETWEEN,
+                vertical_alignment=CROSS_CENTER,
+            ),
             ft.Container(height=140, bgcolor="black", border_radius=8, padding=10, content=log_column, border=compat_border_all(1, "#374151"))
         ], horizontal_alignment=CROSS_STRETCH)
     )
