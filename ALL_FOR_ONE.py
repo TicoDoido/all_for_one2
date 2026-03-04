@@ -256,13 +256,17 @@ class PluginManager:
         if plugin_name in plugin_cache:
             module = plugin_cache[plugin_name]
         else:
-            plugin_path = os.path.join(self.plugin_dir, f"{plugin_name}.py")
-            if not os.path.exists(plugin_path):
-                plugin_path = os.path.join(self.plugin_dir, f"{plugin_name}.pyc")
-                if not os.path.exists(plugin_path):
-                    return None
+            candidate_paths = [
+                os.path.join(self.plugin_dir, f"{plugin_name}.py"),
+                os.path.join(self.plugin_dir, f"{plugin_name}.pyc")
+            ]
+            plugin_path = next((path for path in candidate_paths if os.path.exists(path)), None)
+            if plugin_path is None:
+                return None
             try:
                 spec = importlib.util.spec_from_file_location(plugin_name, plugin_path)
+                if spec is None or spec.loader is None:
+                    raise ImportError(f"Não foi possível criar loader para: {plugin_path}")
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 plugin_cache[plugin_name] = module
@@ -288,8 +292,21 @@ class PluginManager:
             return res() if callable(res) else res
         return None
     def get_all_plugins_list(self):
-        if not os.path.exists(self.plugin_dir): return []
-        return [f[:-3] for f in os.listdir(self.plugin_dir) if f.endswith(".py") and f != "__init__.py"]
+        if not os.path.exists(self.plugin_dir):
+            return []
+
+        plugins = {}
+        for filename in os.listdir(self.plugin_dir):
+            if filename == "__init__.py" or filename.startswith("__"):
+                continue
+            if filename.endswith(".py"):
+                plugins[filename[:-3]] = ".py"
+            elif filename.endswith(".pyc"):
+                plugin_name = filename[:-4]
+                # Prioriza versão fonte caso ambas existam.
+                plugins.setdefault(plugin_name, ".pyc")
+
+        return sorted(plugins.keys())
 # ==============================================================================
 # 4. FUNÇÕES AUXILIARES
 # ==============================================================================
