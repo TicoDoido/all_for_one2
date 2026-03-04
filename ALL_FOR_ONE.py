@@ -201,7 +201,7 @@ LANG_NAME_BY_CODE = {v: k for k, v in LANG_MAP.items()}
 UI_STRINGS = {
     "pt_BR": {
         "title_select": "Selecione um Plugin",
-        "desc_empty": "Nenhuma ferramenta carregada.",
+        "desc_empty": "Hub de ferramentas para extrair, converter e reempacotar arquivos de jogos.",
         "sidebar_lang": "IDIOMA",
         "sidebar_tools": "LISTA DE PLUGINS",
         "log_title": "LOG DO SISTEMA",
@@ -214,7 +214,7 @@ UI_STRINGS = {
     },
     "en_US": {
         "title_select": "Select a Plugin",
-        "desc_empty": "No plugin loaded.",
+        "desc_empty": "A toolbox hub to extract, convert, and repack game files.",
         "sidebar_lang": "LANGUAGE",
         "sidebar_tools": "PLUGINS LIST",
         "log_title": "SYSTEM LOG",
@@ -227,7 +227,7 @@ UI_STRINGS = {
     },
     "es_ES": {
         "title_select": "Selecciona un Plugin",
-        "desc_empty": "Ninguna ferramenta carregada.",
+        "desc_empty": "Centro de herramientas para extraer, convertir y reempaquetar archivos de juegos.",
         "sidebar_lang": "IDIOMA",
         "sidebar_tools": "LISTA DE PLUGINS",
         "log_title": "REGISTRO DEL SISTEMA",
