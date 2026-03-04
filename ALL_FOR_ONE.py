@@ -247,8 +247,12 @@ class PluginManager:
         self.current_plugin_options = {}
         self.log_callback = log_callback
         try:
-            base_path = os.path.dirname(os.path.abspath(__file__))
-        except:
+            if getattr(sys, "frozen", False):
+                # Em builds onefile (PyInstaller), os recursos externos ficam ao lado do .exe.
+                base_path = os.path.dirname(sys.executable)
+            else:
+                base_path = os.path.dirname(os.path.abspath(__file__))
+        except Exception:
             base_path = os.getcwd()
         self.plugin_dir = os.path.join(base_path, "plugins")
         self.banner_dir = os.path.join(base_path, "banners")
