@@ -1,0 +1,88 @@
+@echo off
+chcp 65001 > nul
+setlocal EnableDelayedExpansion
+
+echo ============================================================
+echo ALL FOR ONE - Build Standalone (corrigido para .pyc)
+echo ============================================================
+echo.
+
+:: Verifica Python e Flet
+python -c "import flet" 2>nul
+if errorlevel 1 (
+    echo [ERRO] Flet nao encontrado. Execute: pip install flet==0.28.3
+    pause
+    exit /b 1
+)
+
+:: Verifica/instala PyInstaller
+python -c "import PyInstaller" 2>nul || (
+    echo [INFO] Instalando PyInstaller...
+    pip install pyinstaller
+)
+
+echo [INFO] Compilando plugins para .pyc...
+python -m compileall -b -f plugins
+
+if not exist "plugins\" (
+    echo [ERRO] Pasta errada criada. Verifique se ha arquivos .py validos em plugins\
+    pause
+    exit /b 1
+)
+
+echo [INFO] Copiando .pyc para pasta temporaria...
+if exist "plugins_pyc" rd /s /q "plugins_pyc" 2>nul
+mkdir "plugins_pyc" 2>nul
+
+copy "plugins\*.pyc" "plugins_pyc\" >nul
+if errorlevel 1 (
+    echo [AVISO] Nenhum .pyc copiado. Verifique a pasta plugins\__pycache__
+)
+
+dir "plugins_pyc" | findstr ".pyc" >nul
+if errorlevel 1 (
+    echo [AVISO] Nao ha arquivos .pyc em plugins_pyc. Usando fallback para .py
+) else (
+    echo [OK] .pyc copiados com sucesso.
+)
+
+echo [INFO] Iniciando build PyInstaller...
+pyinstaller ALL_FOR_ONE.py --onefile --clean --noconfirm
+
+if errorlevel 1 (
+    echo [ERRO] Build falhou.
+    pause
+    exit /b 1
+)
+
+echo [INFO] Preparando distribuicao...
+if not exist "dist\plugins" mkdir "dist\plugins" 2>nul
+if not exist "dist\banners" mkdir "dist\banners" 2>nul
+
+:: Copia os .pyc (prioridade) ou fallback para .py
+if exist "plugins_pyc\*.pyc" (
+    xcopy /Y /Q "plugins_pyc\*.pyc" "dist\plugins\" >nul
+    echo [OK] Copiados .pyc para dist\plugins
+) else (
+    if exist "plugins\*.py" (
+        xcopy /Y /Q "plugins\*.py" "dist\plugins\" >nul
+        echo [FALLBACK] Copiados .py (sem .pyc gerados)
+    )
+)
+
+if exist "banners" xcopy /E /Y /Q "banners" "dist\banners\" >nul
+
+:: Limpeza
+rd /s /q "plugins_pyc" 2>nul
+rd /s /q build 2>nul
+del /q ALL_FOR_ONE.spec 2>nul
+
+echo.
+echo ============================================================
+echo Build finalizado!
+echo Verifique em: dist\
+echo - all_for_one.exe
+echo - plugins\
+echo - banners\
+echo ============================================================
+pause
