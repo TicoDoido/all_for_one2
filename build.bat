@@ -46,8 +46,20 @@ if errorlevel 1 (
     echo [OK] .pyc copiados com sucesso.
 )
 
+echo [INFO] Coletando dependencias importadas pelos plugins...
+set "HIDDEN_IMPORT_ARGS="
+for /f "usebackq delims=" %%I in (`python tools\collect_plugin_hidden_imports.py`) do (
+    set "HIDDEN_IMPORT_ARGS=!HIDDEN_IMPORT_ARGS! --hidden-import %%I"
+)
+
+if defined HIDDEN_IMPORT_ARGS (
+    echo [INFO] Hidden imports detectados: !HIDDEN_IMPORT_ARGS!
+) else (
+    echo [INFO] Nenhum hidden import adicional detectado.
+)
+
 echo [INFO] Iniciando build PyInstaller...
-pyinstaller ALL_FOR_ONE.py --onefile --clean --noconfirm
+pyinstaller ALL_FOR_ONE.py --onefile --clean --noconfirm !HIDDEN_IMPORT_ARGS!
 
 if errorlevel 1 (
     echo [ERRO] Build falhou.
