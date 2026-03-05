@@ -9,6 +9,7 @@ import hashlib
 import subprocess
 import time
 import importlib.util
+import glob
 from importlib.metadata import version, PackageNotFoundError
 import xml.etree.ElementTree as _element_tree
 
@@ -258,15 +259,26 @@ class PluginManager:
             base_path = os.getcwd()
         self.plugin_dir = os.path.join(base_path, "plugins")
         self.banner_dir = os.path.join(base_path, "banners")
+    def _resolve_plugin_path(self, plugin_name):
+        py_path = os.path.join(self.plugin_dir, f"{plugin_name}.py")
+        if os.path.exists(py_path):
+            return py_path
+
+        pyc_path = os.path.join(self.plugin_dir, f"{plugin_name}.pyc")
+        if os.path.exists(pyc_path):
+            return pyc_path
+
+        cache_pattern = os.path.join(self.plugin_dir, "__pycache__", f"{plugin_name}.cpython-*.pyc")
+        cache_candidates = sorted(glob.glob(cache_pattern), reverse=True)
+        if cache_candidates:
+            return cache_candidates[0]
+
+        return None
     def load_plugin_data(self, plugin_name, language="pt_BR", page=None):
         if plugin_name in plugin_cache:
             module = plugin_cache[plugin_name]
         else:
-            candidate_paths = [
-                os.path.join(self.plugin_dir, f"{plugin_name}.py"),
-                os.path.join(self.plugin_dir, f"{plugin_name}.pyc")
-            ]
-            plugin_path = next((path for path in candidate_paths if os.path.exists(path)), None)
+            plugin_path = self._resolve_plugin_path(plugin_name)
             if plugin_path is None:
                 return None
             try:
@@ -277,7 +289,7 @@ class PluginManager:
                 spec.loader.exec_module(module)
                 plugin_cache[plugin_name] = module
             except Exception as e:
-                self.log_callback(f"Erro no plugin {plugin_name}: {e}", color=COLOR_LOG_RED)
+                self.log_callback(f"Erro no plugin {plugin_name} ({plugin_path}): {e}", color=COLOR_LOG_RED)
                 return None
         if hasattr(module, "register_plugin"):
             import inspect
@@ -312,6 +324,15 @@ class PluginManager:
                 # Prioriza versão fonte caso ambas existam.
                 plugins.setdefault(plugin_name, ".pyc")
 
+        pycache_dir = os.path.join(self.plugin_dir, "__pycache__")
+        if os.path.isdir(pycache_dir):
+            for pyc_file in os.listdir(pycache_dir):
+                if not pyc_file.endswith(".pyc"):
+                    continue
+                plugin_name = pyc_file.split(".cpython-", 1)[0]
+                if plugin_name and plugin_name != "__init__":
+                    plugins.setdefault(plugin_name, ".pyc")
+
         return sorted(plugins.keys())
 # ==============================================================================
 # 4. FUNÇÕES AUXILIARES
@@ -343,37 +364,28 @@ def main(page: ft.Page):
         txt = UI_STRINGS.get(state["language_code"], UI_STRINGS["pt_BR"]).get(key, key)
         return txt.format(**kwargs) if kwargs else txt
     # --- Log ---
-    log_column = ft.Column(scroll="always", expand=True)
+    log_view = ft.TextField(
+        value="",
+        multiline=True,
+        read_only=True,
+        expand=True,
+        min_lines=8,
+        max_lines=8,
+        text_style=ft.TextStyle(font_family="Consolas", size=11, color="#E5E7EB"),
+        border=ft.InputBorder.NONE,
+        content_padding=8,
+    )
     log_history = []
-    log_buffer = []
-    last_update_time = [0]
    
     def log_ui(msg, color=COLOR_LOG_GREEN):
-        log_history.append(msg)
-        log_buffer.append(msg)
-        current_time = time.time()
-        if color == COLOR_LOG_RED or (current_time - last_update_time[0]) > 0.1:
-            if log_buffer:
-                batch_msg = "".join(log_buffer)
-                log_column.controls.append(
-                    ft.Text(value=batch_msg, font_family="Consolas", color=color, size=11, no_wrap=False)
-                )
-                log_buffer.clear()
-               
-                if len(log_column.controls) > 50:
-                    log_column.controls.pop(0)
-               
-                last_update_time[0] = current_time
-                page.update()
-               
-                if IS_MODERN:
-                    async def _scroll():
-                        try: await log_column.scroll_to(offset=-1, duration=50)
-                        except Exception: pass
-                    page.run_task(_scroll)
-                else:
-                    try: log_column.scroll_to(offset=-1, duration=50)
-                    except Exception: pass
+        color_tag = "[ERRO] " if color == COLOR_LOG_RED else ("[AVISO] " if color == COLOR_LOG_YELLOW else "")
+        line = msg if msg.endswith("\n") else f"{msg}\n"
+        full_line = f"{color_tag}{line}" if color_tag and not msg.startswith("[") else line
+        log_history.append(full_line)
+        if len(log_history) > 1000:
+            del log_history[:-1000]
+        log_view.value = "".join(log_history)
+        page.update()
 
     def copy_log(_):
         full_log = "".join(log_history).strip() or "(log vazio)"
@@ -634,7 +646,7 @@ def main(page: ft.Page):
                 alignment=MAIN_SPACE_BETWEEN,
                 vertical_alignment=CROSS_CENTER,
             ),
-            ft.Container(height=140, bgcolor="black", border_radius=8, padding=10, content=log_column, border=compat_border_all(1, "#374151"))
+            ft.Container(height=160, bgcolor="black", border_radius=8, padding=2, content=log_view, border=compat_border_all(1, "#374151"))
         ], horizontal_alignment=CROSS_STRETCH)
     )
     page.add(ft.Row([sidebar, content], expand=True, spacing=0))
