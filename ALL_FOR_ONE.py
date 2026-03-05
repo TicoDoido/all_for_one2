@@ -259,6 +259,11 @@ class PluginManager:
             base_path = os.getcwd()
         self.plugin_dir = os.path.join(base_path, "plugins")
         self.banner_dir = os.path.join(base_path, "banners")
+
+        if base_path not in sys.path:
+            sys.path.insert(0, base_path)
+        if self.plugin_dir not in sys.path:
+            sys.path.insert(0, self.plugin_dir)
     def _resolve_plugin_path(self, plugin_name):
         py_path = os.path.join(self.plugin_dir, f"{plugin_name}.py")
         if os.path.exists(py_path):

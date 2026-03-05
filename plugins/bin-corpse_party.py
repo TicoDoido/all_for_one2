@@ -6,7 +6,10 @@ import tkinter as tk
 from tkinter import filedialog
 
 # Importa unlzss diretamente (assumindo que o módulo está acessível)
-from plugins.DECOMP_CODE.lzss_codec import unlzss
+try:
+    from plugins.DECOMP_CODE.lzss_codec import unlzss
+except ModuleNotFoundError:
+    from DECOMP_CODE.lzss_codec import unlzss
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
