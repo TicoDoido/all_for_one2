@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 
 # ----------------------------
 # Descompressor (mantive igual)

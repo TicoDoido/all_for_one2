@@ -3,7 +3,8 @@ import struct
 import re
 import threading
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk, Label, Button
+from tkinter import filedialog, messagebox, Label, Button
+import tkinter.ttk as ttk
 from typing import List, Dict, Any, Tuple, Optional
 
 # Translation dictionaries for the plugin

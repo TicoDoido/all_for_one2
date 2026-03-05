@@ -30,20 +30,19 @@ if not exist "plugins\" (
     exit /b 1
 )
 
-echo [INFO] Copiando .pyc para pasta temporaria...
+echo [INFO] Copiando .pyc para pasta temporaria (incluindo subpastas)...
 if exist "plugins_pyc" rd /s /q "plugins_pyc" 2>nul
 mkdir "plugins_pyc" 2>nul
 
-copy "plugins\*.pyc" "plugins_pyc\" >nul
+xcopy /E /I /Y /Q "plugins\*.pyc" "plugins_pyc\" >nul
 if errorlevel 1 (
-    echo [AVISO] Nenhum .pyc copiado. Verifique a pasta plugins\__pycache__
+    echo [AVISO] Nenhum .pyc copiado. Verifique a compilacao em plugins\
 )
 
-dir "plugins_pyc" | findstr ".pyc" >nul
 if errorlevel 1 (
     echo [AVISO] Nao ha arquivos .pyc em plugins_pyc. Usando fallback para .py
 ) else (
-    echo [OK] .pyc copiados com sucesso.
+    echo [OK] .pyc copiados com sucesso (estrutura preservada).
 )
 
 echo [INFO] Coletando dependencias importadas pelos plugins...
@@ -59,7 +58,7 @@ if defined HIDDEN_IMPORT_ARGS (
 )
 
 echo [INFO] Iniciando build PyInstaller...
-set "CORE_HIDDEN_IMPORTS=--hidden-import tkinter --hidden-import tkinter.filedialog --hidden-import xml.etree.ElementTree --hidden-import xmltree"
+set "CORE_HIDDEN_IMPORTS=--hidden-import tkinter --hidden-import tkinter.filedialog --hidden-import tkinter.ttk --hidden-import xml.etree.ElementTree --hidden-import xmltree"
 pyinstaller ALL_FOR_ONE.py --onefile --clean --noconfirm !CORE_HIDDEN_IMPORTS! !HIDDEN_IMPORT_ARGS!
 
 if errorlevel 1 (
@@ -73,12 +72,12 @@ if not exist "dist\plugins" mkdir "dist\plugins" 2>nul
 if not exist "dist\banners" mkdir "dist\banners" 2>nul
 
 :: Copia os .pyc (prioridade) ou fallback para .py
-if exist "plugins_pyc\*.pyc" (
-    xcopy /Y /Q "plugins_pyc\*.pyc" "dist\plugins\" >nul
-    echo [OK] Copiados .pyc para dist\plugins
+if exist "plugins_pyc" (
+    xcopy /E /I /Y /Q "plugins_pyc\*" "dist\plugins\" >nul
+    echo [OK] Copiados .pyc para dist\plugins (incluindo subpastas)
 ) else (
-    if exist "plugins\*.py" (
-        xcopy /Y /Q "plugins\*.py" "dist\plugins\" >nul
+    if exist "plugins" (
+        xcopy /E /I /Y /Q "plugins\*.py" "dist\plugins\" >nul
         echo [FALLBACK] Copiados .py (sem .pyc gerados)
     )
 )
