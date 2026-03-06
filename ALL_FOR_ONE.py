@@ -129,6 +129,19 @@ def compat_window_props(page, w, h, always_on_top):
 def compat_run(main_fn):
     if hasattr(ft, "run"): ft.run(main_fn)
     else: ft.app(target=main_fn)
+def compact_dropdown(height=38, **kwargs):
+    """Wrapper que força altura compacta no ft.Dropdown sem cortar o menu."""
+    dd = ft.Dropdown(
+        dense=True,
+        text_size=11,
+        content_padding=compat_padding_only(left=10, top=0, right=5, bottom=0),
+        **kwargs
+    )
+    return ft.Container(
+        content=dd,
+        height=height,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+    )
 # ---------- MONKEY PATCH FLET FILEPICKER PARA PLUGINS ----------
 # Esta classe falsa substitui o `ft.FilePicker` original. Assim, qualquer plugin externo
 # que usar "ft.FilePicker(on_result=X)" será interceptado aqui e não vai travar na versão 0.80+.
@@ -357,31 +370,29 @@ def calculate_git_sha(filepath):
 # 5. INTERFACE GRÁFICA
 # ==============================================================================
 def main(page: ft.Page):
-    page.title = "All For One Manager"
+    page.title = "All for One Manager"
     page.theme_mode = "dark"
     page.bgcolor = COLOR_BG
     page.padding = 0
-   
-    compat_window_props(page, 1150, 850, False)
-    state = {"language_code": "pt_BR", "current_plugin": None}
-   
+    
+    compat_window_props(page, 1150, 800, False)
+
+    # 1. Apenas inicie o state aqui em cima
+    state = {"language_code": "pt_BR", "current_plugin": None, "favorites": []}
+    
     def t(key, **kwargs):
         txt = UI_STRINGS.get(state["language_code"], UI_STRINGS["pt_BR"]).get(key, key)
         return txt.format(**kwargs) if kwargs else txt
+
     # --- Log ---
     log_view = ft.TextField(
-        value="",
-        multiline=True,
-        read_only=True,
-        expand=True,
-        min_lines=8,
-        max_lines=8,
+        value="", multiline=True, read_only=True, expand=True,
+        min_lines=5, max_lines=5,
         text_style=ft.TextStyle(font_family="Consolas", size=11, color="#E5E7EB"),
-        border=ft.InputBorder.NONE,
-        content_padding=8,
+        border=ft.InputBorder.NONE, content_padding=8,
     )
     log_history = []
-   
+    
     def log_ui(msg, color=COLOR_LOG_GREEN):
         color_tag = "[ERRO] " if color == COLOR_LOG_RED else ("[AVISO] " if color == COLOR_LOG_YELLOW else "")
         line = msg if msg.endswith("\n") else f"{msg}\n"
@@ -399,7 +410,42 @@ def main(page: ft.Page):
             log_ui("\n[INFO] Log copiado para a área de transferência.\n", color=COLOR_LOG_YELLOW)
         except Exception as e:
             log_ui(f"\n[ERRO] Falha ao copiar log: {e}\n", color=COLOR_LOG_RED)
+            
+    # ==========================================
+    # 2. AQUI O MANAGER É CRIADO
     manager = PluginManager(log_ui)
+    # ==========================================
+
+    # 3. AGORA SIM, colocamos a lógica dos favoritos (pois o manager já existe!)
+    favorites_file = os.path.join(manager.plugin_dir, "favorites.json")
+    
+    def load_favorites():
+        if os.path.exists(favorites_file):
+            try:
+                with open(favorites_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return []
+
+    def save_favorites():
+        try:
+            with open(favorites_file, 'w', encoding='utf-8') as f:
+                json.dump(state["favorites"], f, indent=4)
+        except Exception as e:
+            log_ui(f"Erro ao salvar favoritos: {e}", color=COLOR_LOG_RED)
+
+    # Carrega os favoritos salvos no HD
+    state["favorites"] = load_favorites()
+
+    def toggle_favorite(e, plugin_file):
+        if plugin_file in state["favorites"]:
+            state["favorites"].remove(plugin_file)
+        else:
+            state["favorites"].append(plugin_file)
+        save_favorites()
+        refresh_sidebar()
+        
     # --- Componentes Principais ---
     plugin_content_area = ft.Column(expand=True, scroll="auto", spacing=12)
     plugin_list_view = ft.ListView(expand=True, spacing=2, padding=5)
@@ -528,6 +574,152 @@ def main(page: ft.Page):
             on_click=lambda _: safe_run_action(action),
             on_hover=lambda e: setattr(e.control, "bgcolor", "#1f2c4d" if e.data == "true" else COLOR_BG) or e.control.update()
         )
+    # --- Novos tipos de controles ---
+    def create_option_control(opt):
+        name = opt["name"]
+        opt_type = opt.get("type", "radio")
+        default = opt.get("default")
+
+        # RADIO (compatibilidade total)
+        if opt_type == "radio" or ("values" in opt and opt_type == "radio"):
+            ctrl = ft.RadioGroup(
+                content=ft.Column([
+                    ft.Radio(value=v, label=v,
+                        label_style=getattr(ft, "TextStyle")(size=10) if hasattr(ft, "TextStyle") else None
+                    )
+                    for v in opt.get("values", [])
+                ], spacing=2)
+            )
+            ctrl.value = default if default else (opt.get("values")[0] if opt.get("values") else None)
+            manager.current_plugin_options[name] = {"control": ctrl, "value": ctrl.value}
+            ctrl.on_change = lambda e, n=name: manager.current_plugin_options[n].update(
+                {"value": e.control.value}
+            )
+            return ctrl
+
+        # TEXT
+        if opt_type == "text":
+            ctrl = ft.TextField(
+                value=default or "",
+                dense=True,
+                height=30,
+                text_size=11
+            )
+            manager.current_plugin_options[name] = {"control": ctrl, "value": ctrl.value}
+            ctrl.on_change = lambda e, n=name: manager.current_plugin_options[n].update(
+                {"value": e.control.value}
+            )
+            return ctrl
+
+        # TEXTAREA
+        if opt_type == "textarea":
+            ctrl = ft.TextField(
+                value=default or "",
+                multiline=True,
+                min_lines=3,
+                max_lines=6,
+                text_size=11
+            )
+            manager.current_plugin_options[name] = {"control": ctrl, "value": ctrl.value}
+            ctrl.on_change = lambda e, n=name: manager.current_plugin_options[n].update(
+                {"value": e.control.value}
+            )
+            return ctrl
+
+        # CHECKBOX
+        if opt_type == "checkbox":
+            ctrl = ft.Checkbox(
+                value=default if default is not None else False
+            )
+            manager.current_plugin_options[name] = {"control": ctrl, "value": ctrl.value}
+            ctrl.on_change = lambda e, n=name: manager.current_plugin_options[n].update(
+                {"value": e.control.value}
+            )
+            return ctrl
+
+        # FOLDER
+        if opt["type"] == "folder":
+            path_field = ft.TextField(
+                dense=True,
+                height=32,
+                text_size=11,
+                expand=True
+            )
+            picker = ft.FilePicker()
+            page.overlay.append(picker)
+            def pick_folder(e):
+                picker.get_directory_path()
+            def on_result(e: ft.FilePickerResultEvent):
+                if e.path:
+                    path_field.value = e.path
+                    manager.current_plugin_options[opt["name"]]["value"] = e.path
+                    page.update()
+            picker.on_result = on_result
+            btn = ft.IconButton(
+                icon=ft.Icons.FOLDER_OPEN,
+                icon_size=16,
+                style=ft.ButtonStyle(
+                    padding=compat_padding_only(left=6, right=6, top=4, bottom=4),
+                ),
+                on_click=pick_folder
+            )
+            manager.current_plugin_options[opt["name"]] = {
+                "control": path_field,
+                "value": None
+            }
+            #ctrl = ft.Row([path_field, btn])
+            ctrl = ft.Container(
+                content=ft.Row([path_field, btn], spacing=0, vertical_alignment=CROSS_CENTER),
+                height=34,
+            )           
+            return ctrl
+
+        # DROPDOWN
+        if opt_type == "dropdown":
+            values = opt.get("values", [])
+            current_val = default or (values[0] if values else "")
+            manager.current_plugin_options[name] = {"control": None, "value": current_val}
+
+            label_text = ft.Text(
+                value=current_val,
+                size=11,
+                color="white",
+                expand=True,
+                no_wrap=True,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            )
+
+            def on_select(val, n=name, lbl=label_text):
+                lbl.value = val
+                manager.current_plugin_options[n]["value"] = val
+                lbl.update()
+
+            popup = ft.PopupMenuButton(
+                items=[
+                    ft.PopupMenuItem(
+                        content=ft.Row([
+                            ft.Text(value=v, size=11, color="white", expand=True),
+                        ], alignment=MAIN_START),
+                        on_click=lambda e, v=v: on_select(v)
+                    )
+                    for v in values
+                ],
+                content=ft.Container(
+                    height=34,
+                    padding=compat_padding_only(left=10, right=6, top=0, bottom=0),
+                    bgcolor=COLOR_BG,
+                    border=compat_border_all(1, COLOR_BORDER),
+                    border_radius=4,
+                    content=ft.Row([
+                        label_text,
+                        compat_icon("arrow_drop_down", color="#9CA3AF", size=18),
+                    ], spacing=4, vertical_alignment=CROSS_CENTER),
+                ),
+            )
+            return popup
+            
+        return ft.Text("Unsupported option type")
+
     # --- Renderização do Plugin ---
     def render_plugin_ui(plugin_file):
         state["current_plugin"] = plugin_file
@@ -567,27 +759,29 @@ def main(page: ft.Page):
         plugin_content_area.controls.append(banner_stack)
         if 'options' in data and data['options']:
             opts = data['options']
-            plugin_content_area.controls.append(ft.Text(value=t("config_title"), size=10, weight="bold", color="grey"))
+            plugin_content_area.controls.append(
+                ft.Text(value=t("config_title"), size=10, weight="bold", color="grey")
+            )
             for i in range(0, len(opts), 2):
                 row = ft.Row(spacing=15, alignment=MAIN_START, vertical_alignment=CROSS_START)
                 for j in range(i, min(i + 2, len(opts))):
                     opt = opts[j]
-                    radio_group = ft.RadioGroup(content=ft.Column([
-                        ft.Radio(value=v, label=v, label_style=getattr(ft, "TextStyle")(size=10) if hasattr(ft, "TextStyle") else None) for v in opt.get('values', [])
-                    ], spacing=2))
-                    radio_group.value = opt.get('values')[0] if opt.get('values') else None
-                    manager.current_plugin_options[opt['name']] = {"control": radio_group, "value": radio_group.value}
-                    radio_group.on_change = lambda e, n=opt['name']: manager.current_plugin_options[n].update({"value": e.control.value})
+                    control = create_option_control(opt)
                     card = ft.Container(
                         content=ft.Column([
                             ft.Text(value=opt['label'].upper(), weight="bold", color="#60A5FA", size=9),
                             ft.Divider(height=1, color=COLOR_BORDER),
-                            radio_group
+                            control
                         ], tight=True, spacing=10),
-                        padding=12, bgcolor=COLOR_CARD, border_radius=6, border=compat_border_all(1, COLOR_BORDER), expand=True
+                        padding=12,
+                        bgcolor=COLOR_CARD,
+                        border_radius=6,
+                        border=compat_border_all(1, COLOR_BORDER),
+                        expand=True
                     )
                     row.controls.append(card)
-                if len(row.controls) == 1: row.controls.append(ft.Container(expand=True))
+                if len(row.controls) == 1:
+                    row.controls.append(ft.Container(expand=True))
                 plugin_content_area.controls.append(row)
         if 'commands' in data:
             cmds = data['commands']
@@ -598,46 +792,135 @@ def main(page: ft.Page):
                 if len(row_btns.controls) == 1: row_btns.controls.append(ft.Container(expand=True))
                 plugin_content_area.controls.append(row_btns)
         page.update()
+
     def refresh_sidebar():
         log_ui(t("searching"))
         plugin_list_view.controls.clear()
+        
+        # 1. Coletar e preparar os dados de todos os plugins
+        items_data = []
         for f in manager.get_all_plugins_list():
             data = manager.load_plugin_data(f, state["language_code"])
             display_name = data.get('name', f) if data else f
-           
+            is_fav = f in state["favorites"]
+            
+            items_data.append({
+                "file": f,
+                "name": display_name,
+                "is_fav": is_fav
+            })
+            
+        # 2. Ordenar a lista: 
+        # Primary key: 'not is_fav' (faz o True=0 vir antes do False=1)
+        # Secondary key: 'name.lower()' (ordem alfabética ignorando maiúsculas)
+        items_data.sort(key=lambda x: (not x["is_fav"], x["name"].lower()))
+
+        # 3. Construir a UI da sidebar
+        for item_data in items_data:
+            f = item_data["file"]
+            display_name = item_data["name"]
+            is_fav = item_data["is_fav"]
+            
+            # Estrela: Preenchida e amarela se for favorito, senão vazada e cinza
+            star_icon = compat_icon(
+                icon_name="star" if is_fav else "star_border",
+                color="#FACC15" if is_fav else "#6B7280", 
+                size=16
+            )
+            
+            # Container clicável apenas para a estrela
+            star_btn = ft.Container(
+                content=star_icon,
+                on_click=lambda e, pf=f: toggle_favorite(e, pf),
+                padding=0,
+                ink=False,
+                tooltip="Favoritar" if not is_fav else "Remover Favorito"
+            )
+            
             item = ft.Container(
                 content=ft.Row(
                     controls=[
-                        compat_icon(icon_name="extension", color="#60A5FA", size=14),
+                        star_btn,
                         ft.Text(value=display_name, size=11, expand=True, no_wrap=False),
                     ],
                     spacing=8,
-                    vertical_alignment=CROSS_START,
+                    vertical_alignment=CROSS_CENTER,
                 ),
-                padding=10, border_radius=6, on_click=lambda e, f=f: render_plugin_ui(f), ink=not IS_MODERN,
+                padding=10, 
+                border_radius=6, 
+                on_click=lambda e, pf=f: render_plugin_ui(pf), 
+                ink=not IS_MODERN,
                 on_hover=lambda e: setattr(e.control, "bgcolor", COLOR_BORDER if e.data == "true" else None) or e.control.update()
             )
             plugin_list_view.controls.append(item)
+            
         page.update()
-    def change_lang(e):
-        state["language_code"] = LANG_MAP.get(e.control.value, "pt_BR")
+    
+    # --- Controle de Idiomas Simplificado (Toggle) ---
+    
+    # Ordem de rotação dos idiomas e seus textos de exibição
+    LANG_ORDER = ["pt_BR", "en_US", "es_ES"]
+    LANG_DISPLAYS = {"pt_BR": "BR", "en_US": "EN", "es_ES": "ES"}
+
+    # Label dinâmico para o título "LISTA DE PLUGINS"
+    lbl_sidebar_tools = ft.Text(value=t("sidebar_tools"), size=9, weight="bold", color="grey")
+    
+    # Texto que mostra o idioma atual no botão
+    lang_indicator = ft.Text(value=LANG_DISPLAYS[state["language_code"]], size=13, weight="bold", color="#60A5FA")
+
+    def set_language(lang_code):
+        state["language_code"] = lang_code
+        
+        # Atualiza a sigla na interface (BR, EN, ES)
+        lang_indicator.value = LANG_DISPLAYS[lang_code]
+        lang_indicator.update()
+        
+        # Atualiza a tradução do título da lista
+        lbl_sidebar_tools.value = t("sidebar_tools")
+        lbl_sidebar_tools.update()
+        
         refresh_sidebar()
-        if state["current_plugin"]: render_plugin_ui(state["current_plugin"])
+        if state["current_plugin"]: 
+            render_plugin_ui(state["current_plugin"])
+
+    # Função que avança para o próximo idioma da lista
+    def cycle_language(e):
+        current_idx = LANG_ORDER.index(state["language_code"])
+        next_idx = (current_idx + 1) % len(LANG_ORDER)
+        set_language(LANG_ORDER[next_idx])
+
+    # O novo Botão Toggle
+    btn_lang = ft.Container(
+        content=lang_indicator,
+        padding=compat_padding_symmetric(horizontal=12, vertical=5),
+        border_radius=4,
+        ink=not IS_MODERN, # Efeito de clique
+        on_click=cycle_language,
+        # Efeito de hover sutil para parecer clicável
+        on_hover=lambda e: setattr(e.control, "bgcolor", "#374151" if e.data == "true" else "transparent") or e.control.update()
+    )
+
     # --- Sidebar ---
     btn_refresh = compat_icon_button(icon_name="refresh", icon_size=18, on_click=lambda _: refresh_sidebar())
     btn_update = compat_icon_button(icon_name="cloud_download", icon_color="#60A5FA", icon_size=18, on_click=lambda _: threading.Thread(target=sync_plugins, daemon=True).start())
+    
     sidebar = ft.Container(
         width=280, bgcolor=COLOR_SIDEBAR, padding=20,
         content=ft.Column(controls=[
-            ft.Row([ft.Text(value="ALL FOR ONE", size=16, weight="black", color="#60A5FA"), ft.Row([btn_update, btn_refresh], spacing=0)], alignment=MAIN_SPACE_BETWEEN),
+            # Botões todos agrupados na mesma linha do Título
+            ft.Row([
+                ft.Text(value="All for One", size=30, font_family="Freestyle Script", weight="Normal", color="#60A5FA"), 
+                ft.Row([btn_lang, btn_update, btn_refresh], spacing=0)
+            ], alignment=MAIN_SPACE_BETWEEN),
+            
             ft.Divider(height=20, color="transparent"),
-            ft.Text(value=t("sidebar_lang"), size=9, weight="bold", color="grey"),
-            compat_dropdown(width=240, text_size=11, value=LANG_NAME_BY_CODE["pt_BR"], options=[compat_dropdown_option(n) for n in LANG_MAP.keys()], on_change=change_lang, bgcolor="#374151", border_color="transparent"),
-            ft.Divider(height=20, color="transparent"),
-            ft.Text(value=t("sidebar_tools"), size=9, weight="bold", color="grey"),
+            
+            # Título dinâmico da lista e a própria lista expandida
+            lbl_sidebar_tools,
             ft.Container(content=plugin_list_view, expand=True)
         ])
-    )
+    )  
+    
     content = ft.Container(
         expand=True, padding=35,
         content=ft.Column(controls=[
@@ -646,15 +929,16 @@ def main(page: ft.Page):
             ft.Row(
                 controls=[
                     ft.Text(value=t("log_title"), size=9, color="grey", weight="bold", expand=True),
-                    compat_icon_button(icon_name="content_copy", icon_color="#9CA3AF", icon_size=16, on_click=copy_log),
+                    compat_icon_button(icon_name="content_copy", icon_color="#60A5FA", icon_size=16, on_click=copy_log),
                 ],
                 alignment=MAIN_SPACE_BETWEEN,
                 vertical_alignment=CROSS_CENTER,
             ),
-            ft.Container(height=160, bgcolor="black", border_radius=8, padding=2, content=log_view, border=compat_border_all(1, "#374151"))
+            ft.Container(height=110, bgcolor="black", border_radius=8, padding=2, content=log_view, border=compat_border_all(1, "#374151"))
         ], horizontal_alignment=CROSS_STRETCH)
     )
     page.add(ft.Row([sidebar, content], expand=True, spacing=0))
     refresh_sidebar()
+
 if __name__ == "__main__":
     compat_run(main)
