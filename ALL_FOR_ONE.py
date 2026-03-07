@@ -121,14 +121,31 @@ def compat_dropdown(**kwargs):
         if IS_MODERN and hasattr(dd, "on_select"): dd.on_select = on_change_handler
         else: dd.on_change = on_change_handler
     return dd
-def compat_window_props(page, w, h, always_on_top):
+def compat_window_props(page, w, h, always_on_top, icon_name=None):
     if hasattr(page, "window"):
         page.window.width, page.window.height, page.window.always_on_top = w, h, always_on_top
+        if icon_name: 
+            page.window.icon = icon_name
     else:
         page.window_width, page.window_height, page.window_always_on_top = w, h, always_on_top
+        if icon_name: 
+            page.window_icon = icon_name
+def get_plugins_path():
+    """Descobre o caminho exato da pasta plugins"""
+    try:
+        if getattr(sys, 'frozen', False):
+            base_path = os.path.dirname(sys.executable)
+        else:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+    except Exception:
+        base_path = os.getcwd()
+    return os.path.join(base_path, "plugins")
 def compat_run(main_fn):
-    if hasattr(ft, "run"): ft.run(main_fn)
-    else: ft.app(target=main_fn)
+    plugins_dir = get_plugins_path()
+    if hasattr(ft, "run"): 
+        ft.run(main_fn, assets_dir=plugins_dir)
+    else: 
+        ft.app(target=main_fn, assets_dir=plugins_dir)
 def compact_dropdown(height=38, **kwargs):
     """Wrapper que força altura compacta no ft.Dropdown sem cortar o menu."""
     dd = ft.Dropdown(
@@ -226,7 +243,8 @@ UI_STRINGS = {
         "update_downloading": "Baixando: {name}...",
         "update_success": "Sincronização concluída!",
         "update_error": "Erro: {err}",
-        "config_title": "CONFIGURAÇÕES"
+        "config_title": "CONFIGURAÇÕES",
+        "search_hint": "Buscar plugin..."
     },
     "en_US": {
         "title_select": "Select a Plugin",
@@ -239,7 +257,8 @@ UI_STRINGS = {
         "update_downloading": "Downloading: {name}...",
         "update_success": "Sync completed!",
         "update_error": "Error: {err}",
-        "config_title": "SETTINGS"
+        "config_title": "SETTINGS",
+        "search_hint": "Search plugin..."
     },
     "es_ES": {
         "title_select": "Selecciona un Plugin",
@@ -252,7 +271,8 @@ UI_STRINGS = {
         "update_downloading": "Descargando: {name}...",
         "update_success": "¡Sincronización completada!",
         "update_error": "Error: {err}",
-        "config_title": "CONFIGURACIÓN"
+        "config_title": "CONFIGURACIÓN",
+        "search_hint": "Buscar plugin..."
     }
 }
 # ==============================================================================
@@ -375,11 +395,12 @@ def main(page: ft.Page):
     page.bgcolor = COLOR_BG
     page.padding = 0
     
-    compat_window_props(page, 1150, 800, False)
-
-    # 1. Apenas inicie o state aqui em cima
-    state = {"language_code": "pt_BR", "current_plugin": None, "favorites": []}
-    
+    compat_window_props(page, 1150, 800, False, icon_name="icon.ico")
+    page.fonts = {
+        "Freestyle Script": "FREESCPT.TTF"
+    }
+    state = {"language_code": "pt_BR", "current_plugin": None, "favorites": [], "search_query": ""}
+ 
     def t(key, **kwargs):
         txt = UI_STRINGS.get(state["language_code"], UI_STRINGS["pt_BR"]).get(key, key)
         return txt.format(**kwargs) if kwargs else txt
@@ -657,6 +678,7 @@ def main(page: ft.Page):
             picker.on_result = on_result
             btn = ft.IconButton(
                 icon=ft.Icons.FOLDER_OPEN,
+                icon_color="#60A5FA",
                 icon_size=16,
                 style=ft.ButtonStyle(
                     padding=compat_padding_only(left=6, right=6, top=4, bottom=4),
@@ -802,7 +824,16 @@ def main(page: ft.Page):
         for f in manager.get_all_plugins_list():
             data = manager.load_plugin_data(f, state["language_code"])
             display_name = data.get('name', f) if data else f
+            description = data.get('description', '') if data else ''
             is_fav = f in state["favorites"]
+            
+            # --- LÓGICA DE FILTRO DA PESQUISA ---
+            query = state["search_query"]
+            if query:
+                # Se o texto digitado não estiver nem no nome e nem na descrição, ignora este plugin
+                if query not in display_name.lower() and query not in description.lower():
+                    continue
+            # ------------------------------------
             
             items_data.append({
                 "file": f,
@@ -855,9 +886,8 @@ def main(page: ft.Page):
             plugin_list_view.controls.append(item)
             
         page.update()
-    
-    # --- Controle de Idiomas Simplificado (Toggle) ---
-    
+   
+    # --- Controle de Idiomas Simplificado (Toggle) ---   
     # Ordem de rotação dos idiomas e seus textos de exibição
     LANG_ORDER = ["pt_BR", "en_US", "es_ES"]
     LANG_DISPLAYS = {"pt_BR": "BR", "en_US": "EN", "es_ES": "ES"}
@@ -878,6 +908,10 @@ def main(page: ft.Page):
         # Atualiza a tradução do título da lista
         lbl_sidebar_tools.value = t("sidebar_tools")
         lbl_sidebar_tools.update()
+
+        # Atualiza a tradução da barra de pesquisa
+        search_input.hint_text = t("search_hint")
+        search_input.update()
         
         refresh_sidebar()
         if state["current_plugin"]: 
@@ -900,8 +934,42 @@ def main(page: ft.Page):
         on_hover=lambda e: setattr(e.control, "bgcolor", "#374151" if e.data == "true" else "transparent") or e.control.update()
     )
 
+    # --- Barra de Pesquisa ---
+    def on_search_change(e):
+        state["search_query"] = e.control.value.lower()
+        refresh_sidebar()
+
+    # 1. O campo de texto limpo (sem bordas, sem fundo, sem padding nativo)
+    search_input = ft.TextField(
+        hint_text=t("search_hint"),
+        on_change=on_search_change,
+        dense=True,
+        text_size=12,
+        border=getattr(ft.InputBorder, "NONE", "none"), # Remove a borda nativa
+        bgcolor="transparent", # Remove o fundo nativo
+        content_padding=0,     # Remove o espaço que buga o cursor
+        cursor_color="#60A5FA", # Deixa o cursor azul combinando!
+    )
+
+    # 2. O Container que atua como a barra visual real
+    search_bar = ft.Container(
+        content=ft.Row(
+            controls=[
+                compat_icon(icon_name="search", color="#60A5FA", size=16),
+                ft.Container(content=search_input, expand=True) # Expande o texto para preencher o resto
+            ],
+            spacing=8,
+            vertical_alignment=CROSS_CENTER,
+        ),
+        height=32, # Altura exata e travada (slim)
+        bgcolor="#374151",
+        border_radius=6,
+        padding=compat_padding_only(left=12, right=10, top=0, bottom=0),
+        alignment=ALIGN_CENTER
+    )
+    
     # --- Sidebar ---
-    btn_refresh = compat_icon_button(icon_name="refresh", icon_size=18, on_click=lambda _: refresh_sidebar())
+    btn_refresh = compat_icon_button(icon_name="refresh", icon_color="#60A5FA", icon_size=18, on_click=lambda _: refresh_sidebar())
     btn_update = compat_icon_button(icon_name="cloud_download", icon_color="#60A5FA", icon_size=18, on_click=lambda _: threading.Thread(target=sync_plugins, daemon=True).start())
     
     sidebar = ft.Container(
@@ -913,13 +981,17 @@ def main(page: ft.Page):
                 ft.Row([btn_lang, btn_update, btn_refresh], spacing=0)
             ], alignment=MAIN_SPACE_BETWEEN),
             
-            ft.Divider(height=20, color="transparent"),
+            ft.Divider(height=10, color="transparent"),
+            
+            # --- Adicionando a Barra de Pesquisa aqui ---
+            search_bar,
+            ft.Divider(height=10, color="transparent"),
             
             # Título dinâmico da lista e a própria lista expandida
             lbl_sidebar_tools,
             ft.Container(content=plugin_list_view, expand=True)
         ])
-    )  
+    )
     
     content = ft.Container(
         expand=True, padding=35,
