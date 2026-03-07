@@ -1,31 +1,41 @@
 @echo off
 chcp 65001 > nul
 setlocal EnableDelayedExpansion
+set "PYTHON="
 
 echo ============================================================
-echo ALL FOR ONE - Build Standalone (corrigido para .pyc)
+echo ALL FOR ONE - Build Standalone
 echo ============================================================
 echo.
 
-:: Verifica Python e Flet
-python -c "import flet" 2>nul
-if errorlevel 1 (
-    echo [ERRO] Flet nao encontrado. Execute: pip install flet==0.28.3
+:: Detecta Python (python ou py -3)
+where python >nul 2>nul && set "PYTHON=python"
+if not defined PYTHON (
+    py -3 --version >nul 2>nul && set "PYTHON=py -3"
+)
+
+if not defined PYTHON (
+    echo [ERRO] Python 3.10+ nao encontrado neste sistema.
+    echo [DICA] Instale em https://www.python.org/downloads/ e marque "Add python.exe to PATH".
     pause
     exit /b 1
 )
 
-:: Verifica/instala PyInstaller
-python -c "import PyInstaller" 2>nul || (
-    echo [INFO] Instalando PyInstaller...
-    pip install pyinstaller
-)
+:: Verifica/instala Flet e PyInstaller
+call :ensure_module "flet" "flet==0.28.3" || exit /b 1
+call :ensure_module "PyInstaller" "pyinstaller" || exit /b 1
 
 echo [INFO] Compilando plugins para .pyc...
-python -m compileall -b -f plugins
+%PYTHON% -m compileall -b -f plugins
+
+if errorlevel 1 (
+    echo [ERRO] Falha ao compilar plugins para .pyc.
+    pause
+    exit /b 1
+)
 
 if not exist "plugins\" (
-    echo [ERRO] Pasta errada criada. Verifique se ha arquivos .py validos em plugins\
+    echo [ERRO] Pasta plugins\ nao encontrada.
     pause
     exit /b 1
 )
@@ -47,7 +57,7 @@ if errorlevel 1 (
 
 echo [INFO] Coletando dependencias importadas pelos plugins...
 set "HIDDEN_IMPORT_ARGS="
-for /f "usebackq delims=" %%I in (`python tools\collect_plugin_hidden_imports.py`) do (
+for /f "usebackq delims=" %%I in (`%PYTHON% tools\collect_plugin_hidden_imports.py`) do (
     set "HIDDEN_IMPORT_ARGS=!HIDDEN_IMPORT_ARGS! --hidden-import %%I"
 )
 
@@ -59,7 +69,7 @@ if defined HIDDEN_IMPORT_ARGS (
 
 echo [INFO] Iniciando build PyInstaller...
 set "CORE_HIDDEN_IMPORTS=--hidden-import tkinter --hidden-import tkinter.filedialog --hidden-import tkinter.ttk --hidden-import xml.etree.ElementTree --hidden-import xmltree"
-pyinstaller ALL_FOR_ONE.py --onefile --clean --noconfirm !CORE_HIDDEN_IMPORTS! !HIDDEN_IMPORT_ARGS!
+%PYTHON% -m PyInstaller ALL_FOR_ONE.py --name all_for_one --onefile --clean --noconfirm !CORE_HIDDEN_IMPORTS! !HIDDEN_IMPORT_ARGS!
 
 if errorlevel 1 (
     echo [ERRO] Build falhou.
@@ -98,3 +108,27 @@ echo - plugins\
 echo - banners\
 echo ============================================================
 pause
+exit /b 0
+
+:ensure_module
+set "MODULE=%~1"
+set "PACKAGE=%~2"
+
+%PYTHON% -c "import %MODULE%" 2>nul
+if errorlevel 1 (
+    echo [INFO] Instalando %PACKAGE%...
+    %PYTHON% -m pip install %PACKAGE%
+    if errorlevel 1 (
+        echo [ERRO] Nao foi possivel instalar %PACKAGE%.
+        pause
+        exit /b 1
+    )
+
+    %PYTHON% -c "import %MODULE%" 2>nul
+    if errorlevel 1 (
+        echo [ERRO] %MODULE% continua indisponivel apos instalacao.
+        pause
+        exit /b 1
+    )
+)
+exit /b 0
