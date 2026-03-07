@@ -24,24 +24,17 @@ python -c "import PyInstaller" 2>nul || (
 echo [INFO] Compilando plugins para .pyc...
 python -m compileall -b -f plugins
 
-if not exist "plugins\" (
-    echo [ERRO] Pasta errada criada. Verifique se ha arquivos .py validos em plugins\
-    pause
-    exit /b 1
-)
-
-echo [INFO] Copiando .pyc para pasta temporaria (incluindo subpastas)...
 if exist "plugins_pyc" rd /s /q "plugins_pyc" 2>nul
 mkdir "plugins_pyc" 2>nul
 
-xcopy /E /I /Y /Q "plugins\*.pyc" "plugins_pyc\" >nul
-if errorlevel 1 (
-    echo [AVISO] Nenhum .pyc copiado. Verifique a compilacao em plugins\
-)
+set "PYC_COUNT=0"
+for /f %%A in ('dir /s /b "plugins\*.pyc" 2^>nul ^| find /c /v ""') do set "PYC_COUNT=%%A"
 
-if errorlevel 1 (
+if "!PYC_COUNT!"=="0" (
     echo [AVISO] Nao ha arquivos .pyc em plugins_pyc. Usando fallback para .py
 ) else (
+    echo [INFO] Copiando .pyc para pasta temporaria (incluindo subpastas)...
+    xcopy /S /I /Y /Q "plugins\*.pyc" "plugins_pyc\" >nul
     echo [OK] .pyc copiados com sucesso (estrutura preservada).
 )
 
@@ -72,7 +65,7 @@ if not exist "dist\plugins" mkdir "dist\plugins" 2>nul
 if not exist "dist\banners" mkdir "dist\banners" 2>nul
 
 :: Copia os .pyc (prioridade) ou fallback para .py
-if exist "plugins_pyc" (
+if exist "plugins_pyc\*.pyc" (
     xcopy /E /I /Y /Q "plugins_pyc\*" "dist\plugins\" >nul
     echo [OK] Copiados .pyc para dist\plugins (incluindo subpastas)
 ) else (
