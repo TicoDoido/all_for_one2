@@ -41,6 +41,11 @@ def collect_hidden_imports() -> list[str]:
         return []
 
     plugin_names = {p.stem for p in PLUGINS_DIR.glob("*.py")}
+    local_packages = {
+        p.name
+        for p in PLUGINS_DIR.iterdir()
+        if p.is_dir() and (p / "__init__.py").exists()
+    }
     stdlib = _stdlib_modules()
     imports: set[str] = set()
 
@@ -69,6 +74,7 @@ def collect_hidden_imports() -> list[str]:
         if module
         and module not in stdlib
         and module not in plugin_names
+        and module not in local_packages
         and module != "__future__"
         and module != "plugins"
     )
