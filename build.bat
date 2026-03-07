@@ -18,7 +18,7 @@ if errorlevel 1 (
 :: Verifica/instala PyInstaller
 python -c "import PyInstaller" 2>nul || (
     echo [INFO] Instalando PyInstaller...
-    pip install pyinstaller
+    python -m pip install pyinstaller
 )
 
 echo [INFO] Compilando plugins para .pyc...
@@ -59,7 +59,7 @@ if defined HIDDEN_IMPORT_ARGS (
 
 echo [INFO] Iniciando build PyInstaller...
 set "CORE_HIDDEN_IMPORTS=--hidden-import tkinter --hidden-import tkinter.filedialog --hidden-import tkinter.ttk --hidden-import xml.etree.ElementTree --hidden-import xmltree"
-pyinstaller ALL_FOR_ONE.py --onefile --clean --noconfirm !CORE_HIDDEN_IMPORTS! !HIDDEN_IMPORT_ARGS!
+python -m PyInstaller ALL_FOR_ONE.py --onefile --clean --noconfirm !CORE_HIDDEN_IMPORTS! !HIDDEN_IMPORT_ARGS!
 
 if errorlevel 1 (
     echo [ERRO] Build falhou.
