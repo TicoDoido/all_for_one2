@@ -59,11 +59,16 @@ if not exist dist\plugins\DECOMP_CODE mkdir dist\plugins\DECOMP_CODE
 
 :: Copiar apenas .pyc
 xcopy plugins\*.pyc dist\plugins\ /E /I /Y /Q >nul
+xcopy banners\*.* dist\banners\ /E /I /Y /Q >nul
 
 :: Copiar .pyd (plugins Cython)
 xcopy plugins\DECOMP_CODE\*.pyd dist\plugins\DECOMP_CODE\ /E /I /Y /Q >nul
 
 echo Plugins copiados.
+
+del /s /q plugins\*.pyc
+del /s /q plugins\*.c
+del /s /q plugins\*.pyd
 
 echo.
 echo ==================================================

@@ -13,7 +13,7 @@ from tkinter import filedialog
 
 PLUGIN_TRANSLATIONS = {
     "pt_BR": {
-        "plugin_name": "EBM - Atelier Ryza 3",
+        "plugin_name": "EBM-GZ - Atelier Ryza 3",
         "plugin_description": "Extrai e importa textos de arquivos EBM (Atelier Ryza 3)",
         "extract_text": "Extrair texto",
         "import_text": "Importar texto",
@@ -44,7 +44,7 @@ PLUGIN_TRANSLATIONS = {
         "operation_completed": "Operação concluída."
     },
     "en_US": {
-        "plugin_name": "EBM - Atelier Ryza 3",
+        "plugin_name": "EBM-GZ - Atelier Ryza 3",
         "plugin_description": "Extracts and imports texts from EBM files (Atelier Ryza 3)",
         "extract_text": "Extract text",
         "import_text": "Import text",
@@ -75,7 +75,7 @@ PLUGIN_TRANSLATIONS = {
         "operation_completed": "Operation completed."
     },
     "es_ES": {
-        "plugin_name": "EBM - Atelier Ryza 3",
+        "plugin_name": "EBM-GZ - Atelier Ryza 3",
         "plugin_description": "Extrae e importa textos de archivos EBM (Atelier Ryza 3)",
         "extract_text": "Extraer texto",
         "import_text": "Importar texto",
@@ -395,6 +395,7 @@ def action_extract_gz():
             out_path = p.with_suffix('')  # remove .gz
 
             data = p.read_bytes()
+            endian = "big" if data.startswith(b'\x00\x00') else "little"
             cursor = 0
             decompressed_parts: List[bytes] = []
             total_len = len(data)
@@ -404,7 +405,7 @@ def action_extract_gz():
                     break
                 size_bytes = data[cursor:cursor + 4]
                 cursor += 4
-                block_size = int.from_bytes(size_bytes, byteorder='little', signed=False)
+                block_size = int.from_bytes(size_bytes, byteorder=endian, signed=False)
                 if block_size == 0:
                     continue
                 if cursor + block_size > total_len:
@@ -426,6 +427,7 @@ def action_extract_gz():
     logger(t("operation_completed"), color=COLOR_LOG_GREEN)
 
 def action_compress_gz():
+    endiam = get_option("is_endiam")
     CHUNK_SIZE = 16 * 1024  # 16 KB
     paths = pick_files_topmost(t("select_compress_files"), [(t("all_files"), "*.*")])
     if not paths:
@@ -453,7 +455,7 @@ def action_compress_gz():
                     )
                     comp = compressor.compress(chunk)
                     comp += compressor.flush(zlib.Z_FINISH)
-                    size_bytes = len(comp).to_bytes(4, byteorder='little', signed=False)
+                    size_bytes = len(comp).to_bytes(4, byteorder=endiam, signed=False)
                     dst.write(size_bytes)
                     dst.write(comp)
 
@@ -475,6 +477,13 @@ def register_plugin(log_func, option_getter, host_language="pt_BR"):
     return {
         "name": t("plugin_name"),
         "description": t("plugin_description"),
+        "options": [
+            {
+                "name": "is_endiam",
+                "label": ("ENDIAM"),
+                "values": ["big", "little"]
+            }
+        ],
         "commands": [
             {"label": t("extract_text"), "action": action_extract},
             {"label": t("import_text"), "action": action_import},
