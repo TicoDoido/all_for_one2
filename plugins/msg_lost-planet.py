@@ -111,7 +111,7 @@ def pick_files_topmost(title, file_types):
     return list(file_paths)
 
 # ==============================================================================
-# TABELAS DE CONVERSÃO (mantidas intactas)
+# TABELAS DE CONVERSÃO
 # ==============================================================================
 DEAD_RISING_TABLE = {
     b'\x01\x00\x00\x00\x00\x04': b'[FIM]\n',
