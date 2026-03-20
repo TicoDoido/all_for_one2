@@ -2,8 +2,7 @@ import os
 import struct
 import zlib
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -90,30 +89,34 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÃO PARA CORRIGIR A JANELA (TOPMOST)
-# ==============================================================================
-def pick_file_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_path = filedialog.askopenfilename(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return file_path
-
-# ==============================================================================
-# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA USAR LOGGER)
+# FilePickers globais
 # ==============================================================================
 
-def extract_packed_container(container_path):
-    base_name = os.path.splitext(os.path.basename(container_path))[0]
-    output_dir = os.path.join(os.path.dirname(container_path), base_name)
-    os.makedirs(output_dir, exist_ok=True)
-    logger(t("extracting_to", path=output_dir), color=COLOR_LOG_YELLOW)
+fp_extract = ft.FilePicker(
+    on_result=lambda e: _extract_packed_container(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+fp_reinsert = ft.FilePicker(
+    on_result=lambda e: _reinsert_files(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+
+# ==============================================================================
+# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA RECEBER PATH)
+# ==============================================================================
+
+def _extract_packed_container(container_path: Path):
+    """Extrai arquivos do container .packed."""
+    logger(t("processing", name=container_path.name), color=COLOR_LOG_YELLOW)
+
+    base_name = container_path.stem
+    output_dir = container_path.parent / base_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logger(t("extracting_to", path=str(output_dir)), color=COLOR_LOG_YELLOW)
 
     with open(container_path, 'rb') as f:
         if f.read(4) != b'BFPK':
@@ -134,8 +137,8 @@ def extract_packed_container(container_path):
             compressed_data = f.read(compressed_size)
             f.seek(current_pos)
 
-            output_path = os.path.join(output_dir, name)
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            output_path = output_dir / name
+            output_path.parent.mkdir(parents=True, exist_ok=True)
 
             try:
                 decompressed_data = zlib.decompress(compressed_data)
@@ -150,9 +153,12 @@ def extract_packed_container(container_path):
             logger(t("progress_status", percent=percent, current=i+1, total=num_files), color=COLOR_LOG_YELLOW)
             logger(t("file_extracted", name=name), color=COLOR_LOG_GREEN)
 
+    logger(t("extraction_completed", path=str(output_dir)), color=COLOR_LOG_GREEN)
     return output_dir
 
-def get_file_list(container_path):
+
+def _get_file_list(container_path: Path):
+    """Retorna lista de nomes de arquivos e posição final do cabeçalho."""
     with open(container_path, 'rb') as f:
         if f.read(4) != b'BFPK':
             raise ValueError(t("invalid_packed_file"))
@@ -163,26 +169,34 @@ def get_file_list(container_path):
         for _ in range(num_files):
             name_size = struct.unpack('<I', f.read(4))[0]
             name = f.read(name_size).decode('utf-8').replace('/', os.sep)
-            f.seek(8, 1)
+            f.seek(8, 1)  # skip decompressed size and offset
             file_list.append(name)
 
         header_end = f.tell()
 
     return file_list, header_end
 
-def reinsert_files(container_path, input_dir):
-    file_list, header_end = get_file_list(container_path)
+
+def _reinsert_files(container_path: Path):
+    """Reinsere arquivos no container .packed a partir da pasta extraída."""
+    logger(t("processing", name=container_path.name), color=COLOR_LOG_YELLOW)
+
+    input_dir = container_path.parent / container_path.stem
+    if not input_dir.exists():
+        raise FileNotFoundError(t("dir_not_found", dir=str(input_dir)))
+
+    file_list, header_end = _get_file_list(container_path)
     total_files = len(file_list)
-    temp_path = container_path + ".new"
+    temp_path = container_path.with_suffix(".new")
 
     with open(container_path, 'rb') as f, open(temp_path, 'w+b') as out:
         out.write(f.read(header_end))
         novos_dados = []
 
         for i, name in enumerate(file_list):
-            input_file = os.path.join(input_dir, name)
-            if not os.path.exists(input_file):
-                raise FileNotFoundError(t("file_not_found", file=input_file))
+            input_file = input_dir / name
+            if not input_file.exists():
+                raise FileNotFoundError(t("file_not_found", file=str(input_file)))
 
             with open(input_file, 'rb') as fin:
                 original_data = fin.read()
@@ -202,68 +216,41 @@ def reinsert_files(container_path, input_dir):
             out.write(struct.pack('<I', size))
             out.write(struct.pack('<I', pointer))
 
-    os.replace(temp_path, container_path)
+    temp_path.replace(container_path)
+    logger(t("reinsertion_completed"), color=COLOR_LOG_GREEN)
     return True
 
+
 # ==============================================================================
-# AÇÕES DOS COMANDOS (SEM THREADING)
+# AÇÕES DOS COMANDOS (CHAMAM OS FILEPICKERS)
 # ==============================================================================
 
 def action_extract():
-    path = pick_file_topmost(t("select_packed_file"), [(t("packed_files"), "*.packed"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-
-    try:
-        # validação rápida para obter número de arquivos (para log de progresso)
-        with open(path, 'rb') as f:
-            if f.read(4) != b'BFPK':
-                raise ValueError(t("invalid_packed_file"))
-            f.seek(8)
-            num_files = struct.unpack('<I', f.read(4))[0]
-
-        output_dir = extract_packed_container(path)
-        logger(t("extraction_completed", path=output_dir), color=COLOR_LOG_GREEN)
-    except Exception as e:
-        logger(t("invalid_file") + ": " + str(e), color=COLOR_LOG_RED)
-
+    fp_extract.pick_files(
+        allowed_extensions=["packed"],
+        dialog_title=t("select_packed_file")
+    )
 
 def action_reinsert():
-    path = pick_file_topmost(t("select_packed_file"), [(t("packed_files"), "*.packed"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    input_dir = os.path.splitext(path)[0]
-    if not os.path.exists(input_dir):
-        logger(t("dir_not_found", dir=input_dir), color=COLOR_LOG_RED)
-        return
-
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-
-    try:
-        # validação rápida
-        file_list, _ = get_file_list(path)
-        total_files = len(file_list)
-
-        success = reinsert_files(path, input_dir)
-        if success:
-            logger(t("reinsertion_completed"), color=COLOR_LOG_GREEN)
-    except Exception as e:
-        logger(t("invalid_file") + ": " + str(e), color=COLOR_LOG_RED)
+    fp_reinsert.pick_files(
+        allowed_extensions=["packed"],
+        dialog_title=t("select_packed_file")
+    )
 
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.extend([fp_extract, fp_reinsert])
+        host_page.update()
 
     return {
         "name": t("plugin_name"),

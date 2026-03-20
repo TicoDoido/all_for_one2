@@ -2,8 +2,7 @@ import os
 import struct
 import zlib
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -117,28 +116,21 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÕES PARA CORRIGIR A JANELA (TOPMOST)
+# FilePickers globais
 # ==============================================================================
-def pick_file_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_path = filedialog.askopenfilename(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return file_path
 
-def pick_folder_topmost(title):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    folder_path = filedialog.askdirectory(parent=root, title=title)
-    root.destroy()
-    return folder_path
+fp_extract = ft.FilePicker(
+    on_result=lambda e: _extract_pod6_file(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+fp_insert = ft.FilePicker(
+    on_result=lambda e: _insert_into_original(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
 
 # ==============================================================================
 # FUNÇÕES AUXILIARES (MANTIDAS DO ORIGINAL)
@@ -150,9 +142,13 @@ def u32le_to_bytes(v):
     return int(int(v)).to_bytes(4, byteorder='little', signed=False)
 
 # ==============================================================================
-# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA USAR LOGGER)
+# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA USAR PATH E LOGGER)
 # ==============================================================================
-def extract_pod6_file(path: Path, outdir: Path):
+def _extract_pod6_file(path: Path):
+    """Extrai arquivos do POD6 selecionado."""
+    logger(t("processing", name=path.name), color=COLOR_LOG_YELLOW)
+    outdir = path.parent / path.stem
+
     try:
         with open(path, 'rb') as f:
             magic = f.read(4)
@@ -251,20 +247,23 @@ def extract_pod6_file(path: Path, outdir: Path):
                     fo.write(outdata)
 
             logger(t("log_extract_finished"), color=COLOR_LOG_GREEN)
-            return outdir
+            logger(t("msg_extract_done", outdir=str(outdir)), color=COLOR_LOG_GREEN)
 
     except Exception as ex:
         logger(t("msg_error_open", err=str(ex)), color=COLOR_LOG_RED)
         raise
 
 
-def insert_into_original(original_path: Path):
-    p = Path(original_path)
+def _insert_into_original(original_path: Path):
+    """Reinsere arquivos no POD6 original (modifica o arquivo in-place)."""
+    logger(t("processing", name=original_path.name), color=COLOR_LOG_YELLOW)
+    p = original_path
     stem = p.stem
     src_dir = p.parent / stem
 
     if not p.exists():
-        raise ValueError(str(p))
+        logger(t("msg_error_open", err=str(p)), color=COLOR_LOG_RED)
+        return
 
     try:
         with open(p, 'rb') as f:
@@ -397,50 +396,43 @@ def insert_into_original(original_path: Path):
             fh.truncate(write_pos_after_header)
 
         logger(t("log_insert_finish"), color=COLOR_LOG_GREEN)
-        return p
+        logger(t("msg_insert_done", res=str(p)), color=COLOR_LOG_GREEN)
 
     except Exception as ex:
         logger(t("msg_error_open", err=str(ex)), color=COLOR_LOG_RED)
         raise
 
+
 # ==============================================================================
-# AÇÕES DOS COMANDOS (SEM THREADING)
+# AÇÕES DOS COMANDOS (CHAMAM OS FILEPICKERS)
 # ==============================================================================
 
 def action_extract():
-    path = pick_file_topmost(t("select_pod_file"), [("POD6 files", "*.pod;*.pod6"), ("All files", "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    p = Path(path)
-    outdir = p.parent / p.stem
-    try:
-        out = extract_pod6_file(p, outdir)
-        logger(t("msg_extract_done", outdir=str(out)), color=COLOR_LOG_GREEN)
-    except Exception as e:
-        logger(t("msg_error_open", err=str(e)), color=COLOR_LOG_RED)
+    fp_extract.pick_files(
+        allowed_extensions=["pod", "pod6"],
+        dialog_title=t("select_pod_file")
+    )
 
 def action_insert():
-    path = pick_file_topmost(t("select_pod_file_insert"), [("POD6 files", "*.pod;*.pod6"), ("All files", "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        res = insert_into_original(Path(path))
-        logger(t("msg_insert_done", res=str(res)), color=COLOR_LOG_GREEN)
-    except Exception as e:
-        logger(t("msg_error_open", err=str(e)), color=COLOR_LOG_RED)
+    fp_insert.pick_files(
+        allowed_extensions=["pod", "pod6"],
+        dialog_title=t("select_pod_file_insert")
+    )
+
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.extend([fp_extract, fp_insert])
+        host_page.update()
 
     return {
         "name": t("plugin_name"),

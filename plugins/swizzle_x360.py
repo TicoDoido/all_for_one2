@@ -2,8 +2,7 @@
 import os
 import struct
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -81,20 +80,18 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÃO PARA CORRIGIR A JANELA (TOPMOST)
+# FilePicker global
 # ==============================================================================
-def pick_file_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_path = filedialog.askopenfilename(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return file_path
+
+fp = ft.FilePicker(
+    on_result=lambda e: _process_file(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
 
 # ==============================================================================
 # FUNÇÕES DE SWIZZLE (MANTIDAS DO ORIGINAL)
@@ -183,28 +180,24 @@ def swizzle_x360(image_data: bytes, img_width: int, img_height: int, block_pixel
     return swizzled_data
 
 # ==============================================================================
-# AÇÃO PRINCIPAL (SEM THREADING)
+# FUNÇÃO PRINCIPAL (ADAPTADA PARA RECEBER PATH)
 # ==============================================================================
 
-def action_process():
+def _process_file(file_path: Path):
+    """Processa o arquivo DDS com base nas opções selecionadas."""
     mode = get_option("var_mode")
     fmt = get_option("var_format")
 
-    path = pick_file_topmost(t("select_file"), [(t("dds_files"), "*.dds"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    logger(t("processing_file", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
+    logger(t("processing_file", name=file_path.name), color=COLOR_LOG_YELLOW)
 
     try:
-        with open(path, "rb") as f:
+        with open(file_path, "rb") as f:
             hdr = f.read(128)
             w = int.from_bytes(hdr[16:20], 'little')
             h = int.from_bytes(hdr[12:16], 'little')
             data = f.read()
 
-        logger(t("processing", name=os.path.basename(path), width=w, height=h), color=COLOR_LOG_YELLOW)
+        logger(t("processing", name=file_path.name, width=w, height=h), color=COLOR_LOG_YELLOW)
 
         format_map = {
             "DXT1": 8,
@@ -222,23 +215,40 @@ def action_process():
         else:
             new_data = unswizzle_x360(data, w, h, 4, pitch)
 
-        with open(path, "wb") as f:
+        with open(file_path, "wb") as f:
             f.write(hdr + new_data)
 
-        logger(t("success_message", path=path), color=COLOR_LOG_GREEN)
+        logger(t("success_message", path=str(file_path)), color=COLOR_LOG_GREEN)
 
     except Exception as e:
         logger(t("error_message", error=str(e)), color=COLOR_LOG_RED)
+
+
+# ==============================================================================
+# AÇÃO DO COMANDO (CHAMA O FILEPICKER)
+# ==============================================================================
+
+def action_process():
+    fp.pick_files(
+        allowed_extensions=["dds"],
+        dialog_title=t("select_file")
+    )
+
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
 
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.append(fp)
+        host_page.update()
 
     return {
         "name": t("plugin_name"),

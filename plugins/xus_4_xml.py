@@ -1,8 +1,8 @@
 import os
 import struct
 import xml.etree.ElementTree as ET
-import tkinter as tk
-from tkinter import filedialog
+from pathlib import Path
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -11,7 +11,7 @@ from tkinter import filedialog
 PLUGIN_TRANSLATIONS = {
     "pt_BR": {
         "plugin_name": "XUS Tools (Xbox 360)",
-        "plugin_description": "Converte .xus para XML e reconverte de volta. Corrige janelas em segundo plano.",
+        "plugin_description": "Converte .xus para XML e reconverte de volta.",
         "extract_text": "Extrair XUS -> XML",
         "rebuild_file": "Recriar XML -> XUS",
         "success_extract": "XML salvo em: {path}",
@@ -25,7 +25,7 @@ PLUGIN_TRANSLATIONS = {
     },
     "en_US": {
         "plugin_name": "XUS Tools (Xbox 360)",
-        "plugin_description": "Converts .xus to XML and back. Fixes background window issues.",
+        "plugin_description": "Converts .xus to XML and back.",
         "extract_text": "Extract XUS -> XML",
         "rebuild_file": "Rebuild XML -> XUS",
         "success_extract": "XML saved at: {path}",
@@ -39,7 +39,7 @@ PLUGIN_TRANSLATIONS = {
     },
     "es_ES": {
         "plugin_name": "Herramientas XUS (Xbox 360)",
-        "plugin_description": "Convierte .xus a XML y viceversa. Arregla ventanas en segundo plano.",
+        "plugin_description": "Convierte .xus a XML y viceversa.",
         "extract_text": "Extraer XUS -> XML",
         "rebuild_file": "Reconstruir XML -> XUS",
         "success_extract": "XML guardado en: {path}",
@@ -62,48 +62,38 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÃO PARA CORRIGIR A JANELA (TOPMOST)
+# FilePickers globais
 # ==============================================================================
-def pick_file_topmost(title, file_types):
-    """Cria uma janela Tk invisível, força ela pro topo e abre o diálogo."""
-    root = tk.Tk()
-    root.withdraw() # Esconde a janela principal feia do tk
-    root.wm_attributes('-topmost', 1) # FORÇA FICAR NA FRENTE DE TUDO
-    
-    file_path = filedialog.askopenfilename(
-        parent=root,
-        title=title, 
-        filetypes=file_types
-    )
-    
-    root.destroy() # Limpa a memória do tk
-    return file_path
+
+fp_extract = ft.FilePicker(
+    on_result=lambda e: _extract_xus(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+
+fp_rebuild = ft.FilePicker(
+    on_result=lambda e: _rebuild_xus(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
 
 # ==============================================================================
 # LÓGICA DE NEGÓCIO (CONVERSÃO)
 # ==============================================================================
 
-def get_magic_number_from_xus(file_path):
+def get_magic_number_from_xus(file_path: Path):
     with open(file_path, 'rb') as file:
         return file.read(6)
 
-def action_extract_xus():
-    path = pick_file_topmost(t("select_xus"), [("XUS Files", "*.xus")])
-    
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    output_xml_path = path.rsplit('.', 1)[0] + '.xml'
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
+def _extract_xus(xus_path: Path):
+    """Extrai texto de um arquivo .xus para XML."""
+    output_xml_path = xus_path.with_suffix('.xml')
+    logger(t("processing", name=xus_path.name), color=COLOR_LOG_YELLOW)
 
     try:
-        with open(path, 'rb') as file:
+        with open(xus_path, 'rb') as file:
             magic_number = file.read(6)
             valid_magic = [b'XUIS\x01\x02', b'XUIS\x01\x00']
             if magic_number not in valid_magic:
@@ -128,32 +118,27 @@ def action_extract_xus():
         with open(output_xml_path, 'w', encoding='utf-8') as out:
             out.write(xml_str)
 
-        logger(t("success_extract", path=os.path.basename(output_xml_path)), color=COLOR_LOG_GREEN)
+        logger(t("success_extract", path=output_xml_path.name), color=COLOR_LOG_GREEN)
 
     except Exception as e:
         logger(t("error_generic", error=str(e)), color=COLOR_LOG_RED)
 
-def action_rebuild_xus():
-    path = pick_file_topmost(t("select_xml"), [("XML Files", "*.xml")])
-    
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
 
-    # Tenta achar o arquivo original para pegar o magic number, senão usa padrão
-    original_guess = path.rsplit('.', 1)[0] + '.xus'
-    output_xus_path = path.rsplit('.', 1)[0] + '_new.xus'
-    
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
+def _rebuild_xus(xml_path: Path):
+    """Reconstrói um arquivo .xus a partir de um XML."""
+    original_guess = xml_path.with_suffix('.xus')
+    output_xus_path = xml_path.with_name(xml_path.stem + '_new.xus')
+
+    logger(t("processing", name=xml_path.name), color=COLOR_LOG_YELLOW)
 
     try:
-        new_magic = b'XUIS\x01\x02' # Padrão
-        if os.path.exists(original_guess):
+        new_magic = b'XUIS\x01\x02'  # Padrão
+        if original_guess.exists():
             original_magic = get_magic_number_from_xus(original_guess)
             if original_magic == b'XUIS\x01\x00':
                 new_magic = b'XUIS\x01\x00'
 
-        tree = ET.parse(path)
+        tree = ET.parse(xml_path)
         root = tree.getroot()
         items_data = []
 
@@ -177,31 +162,48 @@ def action_rebuild_xus():
             file.seek(6)
             file.write(struct.pack('>I', file_size))
 
-        logger(t("success_rebuild", path=os.path.basename(output_xus_path)), color=COLOR_LOG_GREEN)
+        logger(t("success_rebuild", path=output_xus_path.name), color=COLOR_LOG_GREEN)
 
     except Exception as e:
         logger(t("error_generic", error=str(e)), color=COLOR_LOG_RED)
 
+
+# ==============================================================================
+# AÇÕES DOS COMANDOS (CHAMAM OS FILEPICKERS)
+# ==============================================================================
+
+def action_extract_xus():
+    fp_extract.pick_files(
+        allowed_extensions=["xus"],
+        dialog_title=t("select_xus")
+    )
+
+def action_rebuild_xus():
+    fp_rebuild.pick_files(
+        allowed_extensions=["xml"],
+        dialog_title=t("select_xml")
+    )
+
+
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.extend([fp_extract, fp_rebuild])
+        host_page.update()
 
     return {
         "name": t("plugin_name"),
         "description": t("plugin_description"),
         "commands": [
-            {
-                "label": t("extract_text"), 
-                "action": action_extract_xus
-            },
-            {
-                "label": t("rebuild_file"), 
-                "action": action_rebuild_xus
-            }
+            {"label": t("extract_text"), "action": action_extract_xus},
+            {"label": t("rebuild_file"), "action": action_rebuild_xus},
         ]
     }

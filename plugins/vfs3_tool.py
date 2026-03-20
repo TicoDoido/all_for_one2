@@ -4,8 +4,7 @@ import os
 import struct
 import json
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -101,23 +100,24 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÃO PARA CORRIGIR A JANELA (TOPMOST)
+# FilePickers globais
 # ==============================================================================
-def pick_file_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_path = filedialog.askopenfilename(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return file_path
+
+fp_extract = ft.FilePicker(
+    on_result=lambda e: _extract(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+fp_reinsert = ft.FilePicker(
+    on_result=lambda e: _reinsert_files(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
 
 # ==============================================================================
-# CLASSES AUXILIARES (MANTIDAS DO ORIGINAL)
+# CLASSES AUXILIARES (mantidas do original)
 # ==============================================================================
 class DirEntry:
     def __init__(self, f):
@@ -161,11 +161,14 @@ def read_filenames(f, offset):
     return files, dirs
 
 # ==============================================================================
-# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA USAR LOGGER)
+# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA PATH)
 # ==============================================================================
-def extract(vfs_file):
+def _extract(vfs_path: Path):
+    """Extrai arquivos do VFS."""
+    logger(t("processing", name=vfs_path.name), color=COLOR_LOG_YELLOW)
+
     metadata = {}
-    with open(vfs_file, 'rb') as f:
+    with open(vfs_path, 'rb') as f:
         magic_offset = f.tell()
         magic, start_offset, dir_count, pad = struct.unpack('<4I', f.read(16))
         magic_hex = f"0x{magic:X}"
@@ -203,8 +206,8 @@ def extract(vfs_file):
 
         entries_sorted = sorted(entries, key=lambda x: x.data_pointer_start)
 
-        txt_list_path = os.path.splitext(vfs_file)[0] + '_extraction_order.txt'
-        extrac_patch = os.path.splitext(vfs_file)[0]
+        txt_list_path = vfs_path.with_suffix('.vfs_extraction_order.txt')
+        extrac_patch = vfs_path.parent / vfs_path.stem
         with open(txt_list_path, 'w', encoding='utf-8') as list_file:
             for entry in entries_sorted:
                 try:
@@ -233,7 +236,7 @@ def extract(vfs_file):
             if dir_path == '' or dir_path is None:
                 filepath = filename
             else:
-                filepath = os.path.join(extrac_patch, dir_path, filename)
+                filepath = os.path.join(str(extrac_patch), dir_path, filename)
             filepath = os.path.normpath(filepath)
             full_dir = os.path.dirname(filepath)
             if full_dir and not os.path.exists(full_dir):
@@ -258,24 +261,28 @@ def extract(vfs_file):
                 'entry_index': entry.entry_index
             })
 
-    json_path = os.path.splitext(vfs_file)[0] + '_metadata.json'
+    json_path = vfs_path.with_suffix('.vfs_metadata.json')
     with open(json_path, 'w', encoding='utf-8') as jf:
         json.dump(metadata, jf, indent=4, ensure_ascii=False)
 
     logger(t("operation_completed"), color=COLOR_LOG_GREEN)
 
-def reinsert_files(vfs_file):
-    json_path = os.path.splitext(vfs_file)[0] + '_metadata.json'
-    if not os.path.exists(json_path):
-        logger(t("log_warn_not_in_metadata", path=json_path), color=COLOR_LOG_RED)
+
+def _reinsert_files(vfs_path: Path):
+    """Reinsere arquivos no VFS."""
+    logger(t("processing", name=vfs_path.name), color=COLOR_LOG_YELLOW)
+
+    json_path = vfs_path.with_suffix('.vfs_metadata.json')
+    if not json_path.exists():
+        logger(t("log_warn_not_in_metadata", path=str(json_path)), color=COLOR_LOG_RED)
         return
 
     with open(json_path, 'r', encoding='utf-8') as jf:
         metadata = json.load(jf)
 
-    txt_list_path = os.path.splitext(vfs_file)[0] + '_extraction_order.txt'
-    if not os.path.exists(txt_list_path):
-        logger(t("log_warn_not_in_metadata", path=txt_list_path), color=COLOR_LOG_RED)
+    txt_list_path = vfs_path.with_suffix('.vfs_extraction_order.txt')
+    if not txt_list_path.exists():
+        logger(t("log_warn_not_in_metadata", path=str(txt_list_path)), color=COLOR_LOG_RED)
         return
 
     reinsertion_order = []
@@ -290,7 +297,7 @@ def reinsert_files(vfs_file):
                 continue
 
     if not reinsertion_order:
-        logger(t("log_warn_not_in_metadata", path=txt_list_path), color=COLOR_LOG_RED)
+        logger(t("log_warn_not_in_metadata", path=str(txt_list_path)), color=COLOR_LOG_RED)
         return
 
     first_offset = reinsertion_order[0][0]
@@ -300,7 +307,7 @@ def reinsert_files(vfs_file):
 
     repack_info = []
 
-    with open(vfs_file, 'r+b') as f:
+    with open(vfs_path, 'r+b') as f:
         f.seek(0)
         magic, start_offset, dir_count, pad = struct.unpack('<4I', f.read(16))
 
@@ -329,10 +336,10 @@ def reinsert_files(vfs_file):
         f.seek(filename_offset)
         filename_table = f.read()
         f.seek(cur)
-        extrac_patch = os.path.splitext(vfs_file)[0]
+        extrac_patch = vfs_path.parent / vfs_path.stem
 
         for offset_val, filepath in reinsertion_order:
-            norm_path = os.path.join(extrac_patch, filepath)
+            norm_path = os.path.join(str(extrac_patch), filepath)
             norm_path = os.path.normpath(norm_path)
 
             if norm_path not in file_lookup:
@@ -384,45 +391,42 @@ def reinsert_files(vfs_file):
         f.write(struct.pack('<Q', new_filename_offset))
         f.flush()
 
-    repack_json_path = os.path.splitext(vfs_file)[0] + '_repacked_metadata.json'
+    repack_json_path = vfs_path.with_suffix('.vfs_repacked_metadata.json')
     with open(repack_json_path, 'w', encoding='utf-8') as jf:
         json.dump(repack_info, jf, indent=4, ensure_ascii=False)
 
     logger(t("operation_completed"), color=COLOR_LOG_GREEN)
 
+
 # ==============================================================================
-# AÇÕES DOS COMANDOS (SEM THREADING)
+# AÇÕES DOS COMANDOS (CHAMAM OS FILEPICKERS)
 # ==============================================================================
 def action_extract():
-    path = pick_file_topmost(t("select_vfs_file"), [("VFS files", "*.vfs"), ("All files", "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        extract(path)
-    except Exception as e:
-        logger(t("log_warn_not_in_metadata", path=str(e)), color=COLOR_LOG_RED)
+    fp_extract.pick_files(
+        allowed_extensions=["vfs"],
+        dialog_title=t("select_vfs_file")
+    )
 
 def action_reinsert():
-    path = pick_file_topmost(t("select_vfs_file"), [("VFS files", "*.vfs"), ("All files", "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        reinsert_files(path)
-    except Exception as e:
-        logger(t("log_warn_not_in_metadata", path=str(e)), color=COLOR_LOG_RED)
+    fp_reinsert.pick_files(
+        allowed_extensions=["vfs"],
+        dialog_title=t("select_vfs_file")
+    )
+
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.extend([fp_extract, fp_reinsert])
+        host_page.update()
 
     return {
         "name": t("plugin_name"),

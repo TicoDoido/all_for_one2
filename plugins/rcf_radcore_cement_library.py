@@ -1,8 +1,7 @@
 import os
 import struct
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -95,28 +94,44 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÕES PARA CORRIGIR A JANELA (TOPMOST)
+# FilePickers globais
 # ==============================================================================
-def pick_file_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_path = filedialog.askopenfilename(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return file_path
 
-def pick_folder_topmost(title):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    folder_path = filedialog.askdirectory(parent=root, title=title)
-    root.destroy()
-    return folder_path
+fp_extract = ft.FilePicker(
+    on_result=lambda e: _extract_files(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+
+# Para rebuild: precisamos de dois pickers encadeados
+_rcf_path_for_rebuild = None
+
+def _on_rcf_selected(e):
+    global _rcf_path_for_rebuild
+    if e.files:
+        _rcf_path_for_rebuild = Path(e.files[0].path)
+        fp_rebuild_txt.pick_files(
+            allowed_extensions=["txt"],
+            dialog_title=t("select_txt_file")
+        )
+    else:
+        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+
+def _on_txt_selected(e):
+    global _rcf_path_for_rebuild
+    if e.files and _rcf_path_for_rebuild:
+        txt_path = Path(e.files[0].path)
+        _recreate_rcf(_rcf_path_for_rebuild, txt_path)
+        _rcf_path_for_rebuild = None
+    else:
+        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+
+fp_rebuild_rcf = ft.FilePicker(on_result=_on_rcf_selected)
+fp_rebuild_txt = ft.FilePicker(on_result=_on_txt_selected)
 
 # ==============================================================================
 # FUNÇÕES AUXILIARES
@@ -127,20 +142,23 @@ def calculate_padding(size, allocation=512):
     return ((size // allocation) + 1) * allocation
 
 # ==============================================================================
-# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA USAR LOGGER)
+# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA RECEBER PATH)
 # ==============================================================================
-def extract_files(file_path):
-    base_directory = os.path.dirname(file_path)
-    base_filename = os.path.splitext(os.path.basename(file_path))[0]
-    extraction_directory = os.path.join(base_directory, base_filename)
+def _extract_files(file_path: Path):
+    """Extrai arquivos do RCF selecionado."""
+    logger(t("processing", name=file_path.name), color=COLOR_LOG_YELLOW)
+
+    base_directory = file_path.parent
+    base_filename = file_path.stem
+    extraction_directory = base_directory / base_filename
 
     try:
-        os.makedirs(extraction_directory, exist_ok=True)
+        extraction_directory.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         logger(t("error_creating_dir", error=str(e)), color=COLOR_LOG_RED)
         return
 
-    logger(t("extracting_to", path=extraction_directory), color=COLOR_LOG_YELLOW)
+    logger(t("extracting_to", path=str(extraction_directory)), color=COLOR_LOG_YELLOW)
 
     with open(file_path, 'rb') as file:
         file.seek(32)
@@ -185,13 +203,13 @@ def extract_files(file_path):
                 file.seek(file_offset)
                 data = file.read(file_size)
                 file_name = names[i].strip()
-                complete_path = os.path.join(extraction_directory, file_name.lstrip("/\\"))
-                os.makedirs(os.path.dirname(complete_path), exist_ok=True)
+                complete_path = extraction_directory / file_name.lstrip("/\\")
+                complete_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(complete_path, 'wb') as f:
                     f.write(data)
                 logger(t("file_extracted", name=file_name), color=COLOR_LOG_GREEN)
 
-            names_list_path = os.path.join(base_directory, f"{base_filename}.txt")
+            names_list_path = base_directory / f"{base_filename}.txt"
             with open(names_list_path, 'w', encoding='utf-8') as names_list:
                 for name in names:
                     names_list.write(name + '\n')
@@ -229,13 +247,13 @@ def extract_files(file_path):
                 file.seek(file_offset)
                 data = file.read(file_size)
                 file_name = names[i].strip()
-                complete_path = os.path.join(extraction_directory, file_name.lstrip("/\\"))
-                os.makedirs(os.path.dirname(complete_path), exist_ok=True)
+                complete_path = extraction_directory / file_name.lstrip("/\\")
+                complete_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(complete_path, 'wb') as f:
                     f.write(data)
                 logger(t("file_extracted", name=file_name), color=COLOR_LOG_GREEN)
 
-            names_list_path = os.path.join(base_directory, f"{base_filename}.txt")
+            names_list_path = base_directory / f"{base_filename}.txt"
             with open(names_list_path, 'w', encoding='utf-8') as names_list:
                 for name in names:
                     names_list.write(name + '\n')
@@ -244,21 +262,24 @@ def extract_files(file_path):
             logger(t("unsupported_file"), color=COLOR_LOG_RED)
             return
 
-    logger(t("extraction_completed", path=extraction_directory), color=COLOR_LOG_GREEN)
+    logger(t("extraction_completed", path=str(extraction_directory)), color=COLOR_LOG_GREEN)
 
 
-def recreate_rcf(original_file_path, txt_names_path):
-    base_filename = os.path.splitext(os.path.basename(original_file_path))[0]
-    base_directory = os.path.dirname(original_file_path)
-    new_rcf_path = os.path.join(base_directory, f"new_{base_filename}.rcf")
-    extracted_files_directory = os.path.join(base_directory, base_filename)
+def _recreate_rcf(original_file_path: Path, txt_names_path: Path):
+    """Reconstroi o arquivo RCF a partir da pasta extraída e da lista de nomes."""
+    logger(t("processing", name=original_file_path.name), color=COLOR_LOG_YELLOW)
 
-    if not os.path.exists(extracted_files_directory):
-        logger(t("folder_not_found", folder=extracted_files_directory), color=COLOR_LOG_RED)
+    base_filename = original_file_path.stem
+    base_directory = original_file_path.parent
+    new_rcf_path = base_directory / f"new_{base_filename}.rcf"
+    extracted_files_directory = base_directory / base_filename
+
+    if not extracted_files_directory.exists():
+        logger(t("folder_not_found", folder=str(extracted_files_directory)), color=COLOR_LOG_RED)
         return
 
-    if not os.path.exists(txt_names_path):
-        logger(t("file_not_found", file=txt_names_path), color=COLOR_LOG_RED)
+    if not txt_names_path.exists():
+        logger(t("file_not_found", file=str(txt_names_path)), color=COLOR_LOG_RED)
         return
 
     with open(original_file_path, 'rb') as original_file:
@@ -313,10 +334,10 @@ def recreate_rcf(original_file_path, txt_names_path):
         with open(txt_names_path, 'r', encoding='utf-8') as txt_names:
             for line in txt_names:
                 file_name = line.lstrip("/\\").strip()
-                file_path = os.path.join(extracted_files_directory, file_name)
+                file_path = extracted_files_directory / file_name
 
-                if not os.path.exists(file_path):
-                    logger(t("file_not_found", file=file_path), color=COLOR_LOG_YELLOW)
+                if not file_path.exists():
+                    logger(t("file_not_found", file=str(file_path)), color=COLOR_LOG_YELLOW)
                     continue
 
                 with open(file_path, 'rb') as f_file:
@@ -348,48 +369,39 @@ def recreate_rcf(original_file_path, txt_names_path):
                 new_rcf.write(struct.pack('<I', pointer))
                 new_rcf.write(struct.pack('<I', original_size))
 
-    logger(t("recreation_completed", path=new_rcf_path), color=COLOR_LOG_GREEN)
+    logger(t("recreation_completed", path=str(new_rcf_path)), color=COLOR_LOG_GREEN)
+
 
 # ==============================================================================
-# AÇÕES DOS COMANDOS (SEM THREADING)
+# AÇÕES DOS COMANDOS (CHAMAM OS FILEPICKERS)
 # ==============================================================================
+
 def action_extract():
-    path = pick_file_topmost(t("select_rcf_file"), [(t("rcf_files"), "*.rcf"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        extract_files(path)
-    except Exception as e:
-        logger(t("error") + ": " + str(e), color=COLOR_LOG_RED)
+    fp_extract.pick_files(
+        allowed_extensions=["rcf"],
+        dialog_title=t("select_rcf_file")
+    )
 
 def action_rebuild():
-    rcf_path = pick_file_topmost(t("select_rcf_file"), [(t("rcf_files"), "*.rcf")])
-    if not rcf_path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
+    fp_rebuild_rcf.pick_files(
+        allowed_extensions=["rcf"],
+        dialog_title=t("select_rcf_file")
+    )
 
-    base_filename = os.path.splitext(os.path.basename(rcf_path))[0]
-    txt_path = pick_file_topmost(t("select_txt_file"), [(t("text_files"), "*.txt")])
-    if not txt_path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    logger(t("processing", name=os.path.basename(rcf_path)), color=COLOR_LOG_YELLOW)
-    try:
-        recreate_rcf(rcf_path, txt_path)
-    except Exception as e:
-        logger(t("error") + ": " + str(e), color=COLOR_LOG_RED)
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.extend([fp_extract, fp_rebuild_rcf, fp_rebuild_txt])
+        host_page.update()
 
     return {
         "name": t("plugin_name"),

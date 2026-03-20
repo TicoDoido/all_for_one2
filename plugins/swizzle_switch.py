@@ -2,8 +2,7 @@
 import os
 import struct
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -81,23 +80,21 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÃO PARA CORRIGIR A JANELA (TOPMOST)
+# FilePicker global
 # ==============================================================================
-def pick_file_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_path = filedialog.askopenfilename(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return file_path
+
+fp = ft.FilePicker(
+    on_result=lambda e: _process_file(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
 
 # ==============================================================================
-# FUNÇÕES DE SWIZZLE (MANTIDAS DO ORIGINAL)
+# FUNÇÕES DE SWIZZLE (mantidas do original)
 # ==============================================================================
 
 def _convert_switch(input_image_data: bytes, img_width: int, img_height: int,
@@ -159,19 +156,14 @@ def swizzle_switch(input_image_data: bytes, img_width: int, img_height: int,
     return _convert_switch(input_image_data, img_width, img_height, bytes_per_block, block_height, width_pad, height_pad, True)
 
 # ==============================================================================
-# AÇÃO PRINCIPAL (SEM THREADING)
+# FUNÇÃO DE PROCESSAMENTO DE UM ÚNICO ARQUIVO
 # ==============================================================================
 
-def action_process():
+def _process_file(path: Path):
     mode = get_option("var_mode")
     fmt = get_option("var_format")
 
-    path = pick_file_topmost(t("select_file"), [(t("dds_files"), "*.dds"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    logger(t("processing_file", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
+    logger(t("processing_file", name=path.name), color=COLOR_LOG_YELLOW)
 
     try:
         with open(path, "rb") as f:
@@ -184,7 +176,7 @@ def action_process():
             h = int.from_bytes(hdr[12:16], 'little')
             data = f.read()
 
-        logger(t("processing", name=os.path.basename(path), width=w, height=h), color=COLOR_LOG_YELLOW)
+        logger(t("processing", name=path.name, width=w, height=h), color=COLOR_LOG_YELLOW)
 
         format_map = {
             "DXT1": 8,
@@ -198,7 +190,7 @@ def action_process():
         if bpp is None:
             raise ValueError(t("unsupported_format", fmt=fmt))
 
-        if mode == t("swizzle"):
+        if mode == "Swizzle":
             new_data = swizzle_switch(data, w, h, bpp)
         else:
             new_data = unswizzle_switch(data, w, h, bpp)
@@ -206,26 +198,43 @@ def action_process():
         with open(path, "wb") as f:
             f.write(hdr + new_data)
 
-        logger(t("success_message", path=path), color=COLOR_LOG_GREEN)
+        logger(t("success_message", path=str(path)), color=COLOR_LOG_GREEN)
 
     except Exception as e:
         logger(t("error_message", error=str(e)), color=COLOR_LOG_RED)
+
+
+# ==============================================================================
+# AÇÃO DO COMANDO (CHAMA O FILEPICKER)
+# ==============================================================================
+
+def action_process():
+    fp.pick_files(
+        allowed_extensions=["dds"],
+        dialog_title=t("select_file")
+    )
+
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
 
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.append(fp)
+        host_page.update()
 
     return {
         "name": t("plugin_name"),
         "description": t("plugin_description"),
         "options": [
-            {"name": "var_mode",   "label": t("operation_label"), "values": [t("swizzle"), t("unswizzle")]},
+            {"name": "var_mode",   "label": t("operation_label"), "values": ["Swizzle", "Unswizzle"]},
             {"name": "var_format", "label": t("format_label"),    "values": ["DXT1", "DXT3", "DXT5", "RGBA8888", "BC7"]}
         ],
         "commands": [

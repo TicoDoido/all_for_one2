@@ -2,8 +2,7 @@ import os
 import struct
 import zlib
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -108,20 +107,27 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÃO PARA CORRIGIR A JANELA (TOPMOST)
+# FilePickers globais
 # ==============================================================================
-def pick_file_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_path = filedialog.askopenfilename(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return file_path
+
+fp_extract_pak = ft.FilePicker(
+    on_result=lambda e: _extrair_pak(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+fp_rebuild_pak = ft.FilePicker(
+    on_result=lambda e: _recreate_file(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+fp_extract_str = ft.FilePicker(
+    on_result=lambda e: _extract_str(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+fp_reinsert_str = ft.FilePicker(
+    on_result=lambda e: _reinsert_str(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
 
 # ==============================================================================
 # FUNÇÕES AUXILIARES (LEITURA LITTLE ENDIAN)
@@ -137,15 +143,18 @@ def read_little_endian_int(file):
     return struct.unpack('<I', file.read(4))[0]
 
 # ==============================================================================
-# FUNÇÕES PRINCIPAIS (PAK)
+# FUNÇÕES PRINCIPAIS (PAK) - ADAPTADAS PARA RECEBER PATH
 # ==============================================================================
 
-def extrair_pak(arquivo_pak):
-    diretorio_arquivo = os.path.dirname(arquivo_pak)
-    nome_pasta_saida = os.path.join(diretorio_arquivo, os.path.splitext(os.path.basename(arquivo_pak))[0])
-    nome_pasta_saida = os.path.normpath(nome_pasta_saida)
-    os.makedirs(nome_pasta_saida, exist_ok=True)
-    logger(t("extracting_to", path=nome_pasta_saida), color=COLOR_LOG_YELLOW)
+def _extrair_pak(arquivo_pak):
+    """Extrai arquivos do PAK selecionado."""
+    logger(t("processing", name=arquivo_pak.name), color=COLOR_LOG_YELLOW)
+
+    diretorio_arquivo = arquivo_pak.parent
+    nome_pasta_saida = diretorio_arquivo / arquivo_pak.stem
+    nome_pasta_saida = nome_pasta_saida.resolve()
+    nome_pasta_saida.mkdir(parents=True, exist_ok=True)
+    logger(t("extracting_to", path=str(nome_pasta_saida)), color=COLOR_LOG_YELLOW)
 
     lista_arquivos_extraidos = []
 
@@ -215,10 +224,10 @@ def extrair_pak(arquivo_pak):
             else:
                 nome_arquivo_descomprimido = nomes_arquivos[i]
 
-            nome_arquivo_descomprimido = os.path.normpath(nome_arquivo_descomprimido)
-            caminho_completo = os.path.join(nome_pasta_saida, nome_arquivo_descomprimido)
-            caminho_completo = os.path.normpath(caminho_completo)
-            os.makedirs(os.path.dirname(caminho_completo), exist_ok=True)
+            # Garantir caminho seguro
+            nome_arquivo_descomprimido = nome_arquivo_descomprimido.replace("\\", "/").lstrip("/")
+            caminho_completo = nome_pasta_saida / nome_arquivo_descomprimido
+            caminho_completo.parent.mkdir(parents=True, exist_ok=True)
 
             with open(caminho_completo, 'wb') as saida:
                 saida.write(dados)
@@ -229,30 +238,31 @@ def extrair_pak(arquivo_pak):
             logger(t("progress_status", percent=percent, current=i+1, total=total), color=COLOR_LOG_YELLOW)
             logger(t("file_extracted", name=nome_arquivo_descomprimido), color=COLOR_LOG_GREEN)
 
-    lista_txt = os.path.join(diretorio_arquivo, os.path.splitext(os.path.basename(arquivo_pak))[0] + '.txt')
-    lista_txt = os.path.normpath(lista_txt)
-
+    lista_txt = diretorio_arquivo / (arquivo_pak.stem + '.txt')
     with open(lista_txt, 'w') as arquivo_lista:
         for nome in lista_arquivos_extraidos:
             arquivo_lista.write(nome + '\n')
 
-    logger(t("extraction_completed", folder=nome_pasta_saida), color=COLOR_LOG_GREEN)
+    logger(t("extraction_completed", folder=str(nome_pasta_saida)), color=COLOR_LOG_GREEN)
 
 
-def recreate_file(arquivo_txt):
-    diretorio_txt = os.path.dirname(arquivo_txt)
-    nome_pak = os.path.splitext(os.path.basename(arquivo_txt))[0]
-    nome_pasta = os.path.join(diretorio_txt, nome_pak)
+def _recreate_file(arquivo_txt):
+    """Reconstrói o PAK a partir do arquivo .txt de lista e pasta extraída."""
+    logger(t("processing", name=arquivo_txt.name), color=COLOR_LOG_YELLOW)
 
-    if not os.path.exists(nome_pasta):
-        raise FileNotFoundError(t("folder_not_found", folder=nome_pasta))
+    diretorio_txt = arquivo_txt.parent
+    nome_pak = arquivo_txt.stem
+    nome_pasta = diretorio_txt / nome_pak
+
+    if not nome_pasta.exists():
+        raise FileNotFoundError(t("folder_not_found", folder=str(nome_pasta)))
 
     with open(arquivo_txt, 'r') as arquivo:
         lista_arquivos = [linha.strip() for linha in arquivo.readlines()]
 
-    arquivo_pak = os.path.join(diretorio_txt, nome_pak + '.pak')
-    if not os.path.exists(arquivo_pak):
-        raise FileNotFoundError(t("file_not_found", file=arquivo_pak))
+    arquivo_pak = diretorio_txt / (nome_pak + '.pak')
+    if not arquivo_pak.exists():
+        raise FileNotFoundError(t("file_not_found", file=str(arquivo_pak)))
 
     ponteiros = []
     tamanhos_normais = []
@@ -267,9 +277,9 @@ def recreate_file(arquivo_txt):
             pak.seek(posicao_insercao)
 
             for nome_arquivo in lista_arquivos:
-                caminho_arquivo = os.path.join(nome_pasta, nome_arquivo)
-                if not os.path.exists(caminho_arquivo):
-                    raise FileNotFoundError(t("file_not_found", file=caminho_arquivo))
+                caminho_arquivo = nome_pasta / nome_arquivo
+                if not caminho_arquivo.exists():
+                    raise FileNotFoundError(t("file_not_found", file=str(caminho_arquivo)))
 
                 with open(caminho_arquivo, 'rb') as f:
                     dados = f.read()
@@ -314,9 +324,9 @@ def recreate_file(arquivo_txt):
             pak.seek(posicao_insercao)
 
             for nome_arquivo in lista_arquivos:
-                caminho_arquivo = os.path.join(nome_pasta, nome_arquivo)
-                if not os.path.exists(caminho_arquivo):
-                    raise FileNotFoundError(t("file_not_found", file=caminho_arquivo))
+                caminho_arquivo = nome_pasta / nome_arquivo
+                if not caminho_arquivo.exists():
+                    raise FileNotFoundError(t("file_not_found", file=str(caminho_arquivo)))
 
                 with open(caminho_arquivo, 'rb') as f:
                     dados = f.read()
@@ -356,11 +366,15 @@ def recreate_file(arquivo_txt):
 
         logger(t("reinsertion_completed"), color=COLOR_LOG_GREEN)
 
+
 # ==============================================================================
-# FUNÇÕES PRINCIPAIS (STR)
+# FUNÇÕES PRINCIPAIS (STR) - ADAPTADAS PARA RECEBER PATH
 # ==============================================================================
 
-def extract_texts_from_binary(file_path):
+def _extract_str(file_path):
+    """Extrai textos de um arquivo .str."""
+    logger(t("processing", name=file_path.name), color=COLOR_LOG_YELLOW)
+
     with open(file_path, 'rb') as file:
         file.seek(8)
         total_texts = read_little_endian_int(file)
@@ -387,21 +401,20 @@ def extract_texts_from_binary(file_path):
                 text += byte
             texts.append(text.decode('utf8', errors='ignore'))
 
-    return texts
-
-
-def save_texts_to_file(texts, file_path):
-    output_file = f"{os.path.splitext(file_path)[0]}.txt"
+    output_file = file_path.with_suffix('.txt')
     with open(output_file, 'w', encoding='utf8') as f:
         for text in texts:
             f.write(f"{text}[FIM]\n")
-    logger(t("text_extraction_completed", path=output_file), color=COLOR_LOG_GREEN)
+    logger(t("text_extraction_completed", path=str(output_file)), color=COLOR_LOG_GREEN)
 
 
-def insert_texts_into_binary(file_path):
-    txt_file_path = f"{os.path.splitext(file_path)[0]}.txt"
-    if not os.path.exists(txt_file_path):
-        raise FileNotFoundError(t("file_not_found", file=txt_file_path))
+def _reinsert_str(file_path):
+    """Reinsere textos em um arquivo .str."""
+    logger(t("processing", name=file_path.name), color=COLOR_LOG_YELLOW)
+
+    txt_file_path = file_path.with_suffix('.txt')
+    if not txt_file_path.exists():
+        raise FileNotFoundError(t("file_not_found", file=str(txt_file_path)))
 
     with open(txt_file_path, 'r', encoding='utf8') as f:
         texts = f.read().split("[FIM]\n")
@@ -434,63 +447,49 @@ def insert_texts_into_binary(file_path):
 
     logger(t("text_reinsertion_completed"), color=COLOR_LOG_GREEN)
 
+
 # ==============================================================================
-# AÇÕES DOS COMANDOS (SEM THREADING)
+# AÇÕES DOS COMANDOS (CHAMAM OS FILEPICKERS)
 # ==============================================================================
 
 def action_extract_pak():
-    path = pick_file_topmost(t("select_pak_file"), [(t("pak_files"), "*.pak"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        extrair_pak(path)
-    except Exception as e:
-        logger(t("unexpected_error", error=str(e)), color=COLOR_LOG_RED)
+    fp_extract_pak.pick_files(
+        allowed_extensions=["pak"],
+        dialog_title=t("select_pak_file")
+    )
 
 def action_rebuild_pak():
-    path = pick_file_topmost(t("select_txt_file"), [(t("text_files"), "*.txt"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        recreate_file(path)
-    except Exception as e:
-        logger(t("unexpected_error", error=str(e)), color=COLOR_LOG_RED)
+    fp_rebuild_pak.pick_files(
+        allowed_extensions=["txt"],
+        dialog_title=t("select_txt_file")
+    )
 
 def action_extract_str():
-    path = pick_file_topmost(t("select_str_file"), [(t("str_files"), "*.str"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        texts = extract_texts_from_binary(path)
-        save_texts_to_file(texts, path)
-    except Exception as e:
-        logger(t("unexpected_error", error=str(e)), color=COLOR_LOG_RED)
+    fp_extract_str.pick_files(
+        allowed_extensions=["str"],
+        dialog_title=t("select_str_file")
+    )
 
 def action_reinsert_str():
-    path = pick_file_topmost(t("select_str_file"), [(t("str_files"), "*.str"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        insert_texts_into_binary(path)
-    except Exception as e:
-        logger(t("unexpected_error", error=str(e)), color=COLOR_LOG_RED)
+    fp_reinsert_str.pick_files(
+        allowed_extensions=["str"],
+        dialog_title=t("select_str_file")
+    )
+
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.extend([fp_extract_pak, fp_rebuild_pak, fp_extract_str, fp_reinsert_str])
+        host_page.update()
 
     return {
         "name": t("plugin_name"),

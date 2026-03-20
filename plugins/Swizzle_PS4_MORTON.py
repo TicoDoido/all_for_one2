@@ -2,8 +2,7 @@
 import os
 import struct
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES (mantido igual)
@@ -14,8 +13,8 @@ PLUGIN_TRANSLATIONS = {
         "plugin_description": "Aplica ou retira o Swizzle de PS4 (MORTON).",
         "operation_label": "Operação",
         "format_label": "Formato do DDS",
-        "swizzle": "Swizzle",
-        "unswizzle": "Unswizzle",
+        "swizzle": "swizzle",
+        "unswizzle": "unswizzle",
         "select_file": "Selecionar DDS",
         "dds_files": "Arquivos DDS",
         "all_files": "Todos os arquivos",
@@ -29,7 +28,46 @@ PLUGIN_TRANSLATIONS = {
         "operation_completed": "Operação concluída.",
         "processing_file": "Processando arquivo {current}/{total}: {name}"
     },
-    # ... outros idiomas (mantidos iguais)
+    "en_US": {
+        "plugin_name": "SWIZZLER for PS4",
+        "plugin_description": "Apply or remove PS4 (MORTON) swizzle.",
+        "operation_label": "Operation",
+        "format_label": "DDS Format",
+        "swizzle": "swizzle",
+        "unswizzle": "unswizzle",
+        "select_file": "Select DDS file",
+        "dds_files": "DDS files",
+        "all_files": "All files",
+        "success_title": "Success",
+        "success_message": "File saved at: {path}",
+        "error_title": "Error",
+        "error_message": "{error}",
+        "unsupported_format": "Unsupported format: {fmt}",
+        "cancelled": "Selection cancelled.",
+        "processing": "Processing: {name}...",
+        "operation_completed": "Operation completed.",
+        "processing_file": "Processing file {current}/{total}: {name}"
+    },
+    "es_ES": {
+        "plugin_name": "SWIZZLER para PS4",
+        "plugin_description": "Aplica o quita el Swizzle de PS4 (MORTON).",
+        "operation_label": "Operación",
+        "format_label": "Formato DDS",
+        "swizzle": "swizzle",
+        "unswizzle": "unswizzle",
+        "select_file": "Seleccionar DDS",
+        "dds_files": "Archivos DDS",
+        "all_files": "Todos los archivos",
+        "success_title": "Éxito",
+        "success_message": "Archivo guardado en: {path}",
+        "error_title": "Error",
+        "error_message": "{error}",
+        "unsupported_format": "Formato no soportado: {fmt}",
+        "cancelled": "Selección cancelada.",
+        "processing": "Procesando: {name}...",
+        "operation_completed": "Operación completada.",
+        "processing_file": "Procesando archivo {current}/{total}: {name}"
+    }
 }
 
 COLOR_LOG_GREEN = "#4ADE80"
@@ -39,20 +77,18 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÃO PARA CORRIGIR A JANELA (TOPMOST) – SUPORTE A MÚLTIPLOS ARQUIVOS
+# FilePicker global com suporte a múltiplos arquivos
 # ==============================================================================
-def pick_files_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_paths = filedialog.askopenfilenames(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return list(file_paths)
+fp = ft.FilePicker(
+    on_result=lambda e: _process_selected_files([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
+    allow_multiple=True
+)
 
 # ==============================================================================
 # FUNÇÕES AUXILIARES (mantidas do original)
@@ -115,7 +151,7 @@ def round_up_multiple(value: int, multiple: int) -> int:
     return ((value + multiple - 1) // multiple) * multiple
 
 # ==============================================================================
-# NOVA FUNÇÃO: PROCESSAMENTO EM MEMÓRIA
+# FUNÇÃO DE PROCESSAMENTO EM MEMÓRIA
 # ==============================================================================
 def process_data(hdr: bytes, data: bytes, mode: str, fmt: str) -> bytes:
     """
@@ -153,7 +189,7 @@ def process_data(hdr: bytes, data: bytes, mode: str, fmt: str) -> bytes:
         padded_data[dst_offset : dst_offset + (orig_block_w * block_data_size)] = \
             data[src_offset : src_offset + (orig_block_w * block_data_size)]
 
-    if mode == t("swizzle"):
+    if mode == "swizzle":
         processed = swizzle_ps4(padded_data, aligned_w, aligned_h,
                                 block_width=4, block_height=4,
                                 block_data_size=block_data_size)
@@ -173,11 +209,10 @@ def process_data(hdr: bytes, data: bytes, mode: str, fmt: str) -> bytes:
     return hdr + processed
 
 # ==============================================================================
-# FUNÇÃO AUXILIAR PARA LER ARQUIVO (opcional, pode ser feita diretamente)
+# FUNÇÃO AUXILIAR PARA LER ARQUIVO
 # ==============================================================================
-def read_dds_file(filepath: str, fmt: str):
+def read_dds_file(filepath: Path, fmt: str):
     """Retorna (cabeçalho, dados) do arquivo DDS."""
-    # Obtém o tamanho do cabeçalho baseado no formato (poderia ser inferido, mas mantemos consistência)
     if fmt == "DXT1":
         header_size = 128
     elif fmt == "DXT5":
@@ -195,45 +230,48 @@ def read_dds_file(filepath: str, fmt: str):
     return hdr, data
 
 # ==============================================================================
-# AÇÃO PRINCIPAL (agora usa a nova função em memória)
+# FUNÇÃO DE PROCESSAMENTO DOS ARQUIVOS SELECIONADOS
 # ==============================================================================
-def action_process():
+def _process_selected_files(file_paths):
     mode = get_option("var_mode")
     fmt = get_option("var_format")
-    paths = pick_files_topmost(t("select_file"), [(t("dds_files"), "*.dds"), (t("all_files"), "*.*")])
-
-    if not paths:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    total = len(paths)
-    for idx, filepath in enumerate(paths, 1):
-        logger(t("processing_file", current=idx, total=total, name=os.path.basename(filepath)), color=COLOR_LOG_YELLOW)
+    total = len(file_paths)
+    for idx, path in enumerate(file_paths, 1):
+        logger(t("processing_file", current=idx, total=total, name=path.name), color=COLOR_LOG_YELLOW)
         try:
-            # 1. Lê o arquivo (operação de I/O)
-            hdr, data = read_dds_file(filepath, fmt)
-
-            # 2. Processa os dados em memória
+            hdr, data = read_dds_file(path, fmt)
             result_bytes = process_data(hdr, data, mode, fmt)
-
-            # 3. Escreve o resultado no mesmo arquivo (ou poderia ser em outro local)
-            with open(filepath, "wb") as out_f:
+            with open(path, "wb") as out_f:
                 out_f.write(result_bytes)
-
-            logger(t("success_message", path=filepath), color=COLOR_LOG_GREEN)
+            logger(t("success_message", path=str(path)), color=COLOR_LOG_GREEN)
         except Exception as e:
             logger(t("error_message", error=str(e)), color=COLOR_LOG_RED)
-
     logger(t("operation_completed"), color=COLOR_LOG_GREEN)
 
 # ==============================================================================
-# ENTRY POINT (REGISTRO) - mantido igual
+# AÇÃO DO COMANDO (ABRE O FILE PICKER)
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+def action_process():
+    fp.pick_files(
+        allowed_extensions=["dds"],
+        dialog_title=t("select_file"),
+        allow_multiple=True
+    )
+
+# ==============================================================================
+# ENTRY POINT (REGISTRO)
+# ==============================================================================
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.append(fp)
+        host_page.update()
+
     return {
         "name": t("plugin_name"),
         "description": t("plugin_description"),

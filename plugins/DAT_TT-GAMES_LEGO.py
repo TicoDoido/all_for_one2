@@ -3,8 +3,7 @@ import os
 import struct
 import json
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -127,21 +126,21 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÃO PARA CORRIGIR A JANELA (TOPMOST)
+# FilePickers globais
 # ==============================================================================
-def pick_file_topmost(title, file_types):
-    """Cria uma janela Tk invisível, força ela pro topo e abre o diálogo."""
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_path = filedialog.askopenfilename(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return file_path
+
+fp_extract = ft.FilePicker(
+    on_result=lambda e: _extract_dat(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+fp_reinsert = ft.FilePicker(
+    on_result=lambda e: _do_rebuild(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
 
 # ==============================================================================
 # CÓDIGO PRINCIPAL (LÓGICA ADAPTADA PARA USAR LOGGER)
@@ -200,7 +199,10 @@ def parse_old_format_names(data, INFO_OFF, FILES, name_field_size):
 
     return names_list
 
-def extract_dat(filepath):
+def _extract_dat(filepath: Path):
+    """Extrai arquivos do .dat selecionado."""
+    logger(t("processing", name=filepath.name), color=COLOR_LOG_YELLOW)
+    
     with open(filepath, "rb") as f:
         data = f.read()
 
@@ -256,22 +258,22 @@ def extract_dat(filepath):
 
     names_list = parse_old_format_names(data, INFO_OFF, FILES, name_field_size)
 
-    base_dir = os.path.dirname(filepath)
-    dat_name = os.path.splitext(os.path.basename(filepath))[0]
-    extracted_folder = os.path.join(base_dir, f"{dat_name}_extracted")
-    os.makedirs(extracted_folder, exist_ok=True)
+    base_dir = filepath.parent
+    dat_name = filepath.stem
+    extracted_folder = base_dir / f"{dat_name}_extracted"
+    extracted_folder.mkdir(parents=True, exist_ok=True)
 
-    json_path = os.path.join(base_dir, f"{dat_name}.json")
+    json_path = base_dir / f"{dat_name}.json"
 
-    logger(t("extracting_to", path=extracted_folder), color=COLOR_LOG_YELLOW)
+    logger(t("extracting_to", path=str(extracted_folder)), color=COLOR_LOG_YELLOW)
 
     extracted_data = []
     for i, entry in enumerate(files_info):
         filename = names_list[i].lstrip("\\").replace("\\", os.sep).upper()
         logger(t("log_extracting", filename=filename), color=COLOR_LOG_YELLOW)
         file_data = data[entry['OFFSET']:entry['OFFSET'] + entry['ZSIZE']]
-        out_path = os.path.join(extracted_folder, filename)
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        out_path = extracted_folder / filename
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         with open(out_path, "wb") as f_out:
             f_out.write(file_data)
 
@@ -288,8 +290,9 @@ def extract_dat(filepath):
     with open(json_path, "w", encoding="utf-8") as jf:
         json.dump(extracted_data, jf, indent=4, ensure_ascii=False)
 
-    logger(t("log_extracted_folder", folder=extracted_folder), color=COLOR_LOG_GREEN)
-    logger(t("log_written_json", json_path=json_path), color=COLOR_LOG_GREEN)
+    logger(t("log_extracted_folder", folder=str(extracted_folder)), color=COLOR_LOG_GREEN)
+    logger(t("log_written_json", json_path=str(json_path)), color=COLOR_LOG_GREEN)
+
 
 def rebuild_dat(original_dat_name, extracted_folder, json_path, out_path):
     FILE_TYPE = 0
@@ -321,11 +324,11 @@ def rebuild_dat(original_dat_name, extracted_folder, json_path, out_path):
             f.seek(2048)
 
         for i, entry in enumerate(file_entries):
-            in_file = os.path.join(extracted_folder, entry["FILENAME"])
-            logger(t("log_inserting", filename=entry["FILENAME"], path=in_file), color=COLOR_LOG_YELLOW)
+            in_file = extracted_folder / entry["FILENAME"]
+            logger(t("log_inserting", filename=entry["FILENAME"], path=str(in_file)), color=COLOR_LOG_YELLOW)
 
-            if not os.path.exists(in_file):
-                raise FileNotFoundError(t("error_file_not_found", path=in_file))
+            if not in_file.exists():
+                raise FileNotFoundError(t("error_file_not_found", path=str(in_file)))
 
             with open(in_file, "rb") as fin:
                 data = fin.read()
@@ -389,64 +392,65 @@ def rebuild_dat(original_dat_name, extracted_folder, json_path, out_path):
     with open(json_path, "w", encoding="utf-8") as jf:
         json.dump(file_entries, jf, indent=4, ensure_ascii=False)
 
-def do_rebuild(json_path):
-    base_dir = os.path.dirname(json_path)
-    dat_name = os.path.splitext(os.path.basename(json_path))[0]
-    original_dat_name = os.path.join(base_dir, f"{dat_name}.dat")
-    extracted_folder = os.path.join(base_dir, f"{dat_name}_extracted")
-    out_path = os.path.join(base_dir, f"{dat_name}_rebuild.dat")
 
-    if not os.path.exists(original_dat_name):
-        logger(t("message_dat_not_found", path=original_dat_name), color=COLOR_LOG_RED)
+def _do_rebuild(json_path: Path):
+    """Reconstrói o .dat a partir do JSON selecionado."""
+    logger(t("processing", name=json_path.name), color=COLOR_LOG_YELLOW)
+
+    base_dir = json_path.parent
+    dat_name = json_path.stem
+    original_dat_name = base_dir / f"{dat_name}.dat"
+    extracted_folder = base_dir / f"{dat_name}_extracted"
+    out_path = base_dir / f"{dat_name}_rebuild.dat"
+
+    if not original_dat_name.exists():
+        logger(t("message_dat_not_found", path=str(original_dat_name)), color=COLOR_LOG_RED)
         return
-    if not os.path.isdir(extracted_folder):
-        logger(t("message_extracted_folder_missing", path=extracted_folder), color=COLOR_LOG_RED)
+    if not extracted_folder.is_dir():
+        logger(t("message_extracted_folder_missing", path=str(extracted_folder)), color=COLOR_LOG_RED)
         return
 
-    logger(t("log_rebuild_started", json_path=json_path), color=COLOR_LOG_YELLOW)
-    logger(t("recreating_to", path=extracted_folder), color=COLOR_LOG_YELLOW)
+    logger(t("log_rebuild_started", json_path=str(json_path)), color=COLOR_LOG_YELLOW)
+    logger(t("recreating_to", path=str(extracted_folder)), color=COLOR_LOG_YELLOW)
 
     try:
         rebuild_dat(original_dat_name, extracted_folder, json_path, out_path)
-        logger(t("log_rebuild_completed", out_path=out_path), color=COLOR_LOG_GREEN)
-        logger(t("log_rebuild_updated_json", json_path=json_path), color=COLOR_LOG_GREEN)
+        logger(t("log_rebuild_completed", out_path=str(out_path)), color=COLOR_LOG_GREEN)
+        logger(t("log_rebuild_updated_json", json_path=str(json_path)), color=COLOR_LOG_GREEN)
     except Exception as e:
         logger(t("rebuild_error_title") + ": " + str(e), color=COLOR_LOG_RED)
 
+
 # ==============================================================================
-# AÇÕES DOS COMANDOS (USAM O SELETOR TOPMOST)
+# AÇÕES DOS COMANDOS (CHAMAM OS FILEPICKERS)
 # ==============================================================================
 
 def action_extract():
-    path = pick_file_topmost(t("select_dat_file"), [("DAT files", "*.dat"), ("All files", "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        extract_dat(path)
-    except Exception as e:
-        logger(t("message_title_error") + ": " + str(e), color=COLOR_LOG_RED)
+    fp_extract.pick_files(
+        allowed_extensions=["dat"],
+        dialog_title=t("select_dat_file")
+    )
 
 def action_reinsert():
-    json_path = pick_file_topmost(t("select_json_file"), [("JSON Files", "*.json"), ("All files", "*.*")])
-    if not json_path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(json_path)), color=COLOR_LOG_YELLOW)
-    try:
-        do_rebuild(json_path)
-    except Exception as e:
-        logger(t("rebuild_error_title") + ": " + str(e), color=COLOR_LOG_RED)
+    fp_reinsert.pick_files(
+        allowed_extensions=["json"],
+        dialog_title=t("select_json_file")
+    )
+
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.extend([fp_extract, fp_reinsert])
+        host_page.update()
 
     return {
         "name": t("plugin_name"),

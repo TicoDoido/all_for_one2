@@ -1,8 +1,7 @@
 import os
 import struct
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -74,189 +73,178 @@ PLUGIN_TRANSLATIONS = {
     }
 }
 
-# Cores usadas no All For One
+
+# ==============================================================================
+# CONFIGURAÇÕES E TRADUÇÕES
+# ==============================================================================
 COLOR_LOG_GREEN = "#4ADE80"
 COLOR_LOG_YELLOW = "#FACC15"
 COLOR_LOG_RED = "#EF4444"
 
-# Variáveis globais injetadas pelo sistema
 logger = None
-get_option = None
 current_lang = "pt_BR"
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÕES PARA CORRIGIR A JANELA (TOPMOST)
-# ==============================================================================
-def pick_file_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_path = filedialog.askopenfilename(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return file_path
-
-# ==============================================================================
-# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA USAR LOGGER)
+# LÓGICA HOG (BACKEND)
 # ==============================================================================
 
-def extract_hog(filepath):
-    entradas = []
-    with open(filepath, "rb") as f:
-        magic = f.read(4)
-        if magic != b"\x01\x00\x02\x00":
-            raise ValueError(t("invalid_file_magic"))
+def run_extraction(filepath):
+    try:
+        path = Path(filepath)
+        logger(t("processing", name=path.name), color=COLOR_LOG_YELLOW)
+        
+        with path.open("rb") as f:
+            if f.read(4) != b"\x01\x00\x02\x00":
+                raise ValueError(t("invalid_magic"))
 
-        header_start = struct.unpack("<I", f.read(4))[0]
-        f.seek(8, 1)
-        total_files = struct.unpack("<I", f.read(4))[0]
-        f.seek(header_start)
+            header_start = struct.unpack("<I", f.read(4))[0]
+            f.seek(8, 1)
+            total_files = struct.unpack("<I", f.read(4))[0]
+            f.seek(header_start)
 
-        for _ in range(total_files):
-            filename_pos = struct.unpack("<I", f.read(4))[0]
-            pos = struct.unpack("<I", f.read(4))[0]
-            size = struct.unpack("<I", f.read(4))[0]
-            f.seek(4, 1)
-            entradas.append((filename_pos, pos, size))
+            entries = []
+            for _ in range(total_files):
+                filename_pos = struct.unpack("<I", f.read(4))[0]
+                pos = struct.unpack("<I", f.read(4))[0]
+                size = struct.unpack("<I", f.read(4))[0]
+                f.seek(4, 1)
+                entries.append((filename_pos, pos, size))
 
-        out_dir = os.path.splitext(filepath)[0]
-        os.makedirs(out_dir, exist_ok=True)
-        logger(t("extracting_to", path=out_dir), color=COLOR_LOG_YELLOW)
+            out_dir = path.parent / path.stem
+            out_dir.mkdir(exist_ok=True)
 
-        for filename_pos, pos, size in entradas:
-            f.seek(filename_pos)
-            name_bytes = bytearray()
-            while True:
-                b = f.read(1)
-                if b == b"\x00" or b == b"":
-                    break
-                name_bytes.extend(b)
-            filename = name_bytes.decode("utf-8", errors="ignore")
+            for filename_pos, pos, size in entries:
+                f.seek(filename_pos)
+                name_bytes = bytearray()
+                while (b := f.read(1)) != b"\x00" and b:
+                    name_bytes.extend(b)
+                filename = name_bytes.decode("utf-8", errors="ignore")
 
-            f.seek(pos)
-            data = f.read(size)
+                f.seek(pos)
+                data = f.read(size)
 
-            out_path = os.path.join(out_dir, filename)
-            logger(t("extracting", file=out_path), color=COLOR_LOG_YELLOW)
-            os.makedirs(os.path.dirname(out_path), exist_ok=True)
-            with open(out_path, "wb") as out_file:
-                out_file.write(data)
+                target = out_dir / filename
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
 
-    logger(t("extraction_completed", count=total_files, path=out_dir), color=COLOR_LOG_GREEN)
+        logger(t("extraction_success", count=total_files, path=out_dir.name), color=COLOR_LOG_GREEN)
+    except Exception as e:
+        logger(t("error", error=str(e)), color=COLOR_LOG_RED)
 
+def run_rebuild(filepath):
+    try:
+        path = Path(filepath)
+        folder = path.parent / path.stem
+        
+        if not folder.is_dir():
+            logger(t("file_not_found", file=folder.name), color=COLOR_LOG_RED)
+            return
 
-def insert_hog(filepath, folder):
-    with open(filepath, "r+b") as f:
-        f.seek(0)
-        magic = f.read(4)
-        f.seek(4)
-        header_start = struct.unpack("<I", f.read(4))[0]
-        f.seek(16)
-        total_files = struct.unpack("<I", f.read(4))[0]
+        logger(t("processing", name=path.name), color=COLOR_LOG_YELLOW)
 
-        f.seek(header_start + 4)
-        insert_position = struct.unpack("<I", f.read(4))[0]
-        f.seek(header_start)
+        with path.open("r+b") as f:
+            f.seek(4)
+            header_start = struct.unpack("<I", f.read(4))[0]
+            f.seek(16)
+            total_files = struct.unpack("<I", f.read(4))[0]
 
-        entradas = []
-        for _ in range(total_files):
-            filename_pos = struct.unpack("<I", f.read(4))[0]
-            f.seek(12, 1)
-            entradas.append(filename_pos)
+            # Coletar nomes originais para manter a ordem do HOG
+            f.seek(header_start)
+            entries_info = []
+            for _ in range(total_files):
+                filename_pos = struct.unpack("<I", f.read(4))[0]
+                f.seek(12, 1)
+                entries_info.append(filename_pos)
 
-        arquivos = []
-        for entry in entradas:
-            f.seek(entry)
-            name_bytes = bytearray()
-            while True:
-                b = f.read(1)
-                if b == b"\x00" or b == b"":
-                    break
-                name_bytes.extend(b)
-            arquivos.append(name_bytes.decode("utf-8", errors="ignore"))
+            filenames = []
+            for pos in entries_info:
+                f.seek(pos)
+                name_bytes = bytearray()
+                while (b := f.read(1)) != b"\x00" and b:
+                    name_bytes.extend(b)
+                filenames.append(name_bytes.decode("utf-8", errors="ignore"))
 
-        f.seek(insert_position)
-        novos_parametros = []
-        for file_to_insert in arquivos:
-            file_path = os.path.join(folder, file_to_insert)
-            if not os.path.isfile(file_path):
-                logger(t("file_not_found", file=file_to_insert), color=COLOR_LOG_YELLOW)
-                continue
+            # Determinar início da escrita de dados (após o primeiro arquivo original)
+            f.seek(header_start + 4)
+            first_data_pos = struct.unpack("<I", f.read(4))[0]
+            f.seek(first_data_pos)
 
-            with open(file_path, "rb") as infile:
-                data = infile.read()
+            new_params = []
+            for name in filenames:
+                src = folder / name
+                if not src.is_file():
+                    logger(t("file_not_found", file=name), color=COLOR_LOG_YELLOW)
+                    continue
+
+                data = src.read_bytes()
                 new_size = len(data)
+                new_pos = f.tell()
+                
+                f.write(data)
+                
+                # Alinhamento PS2 (2048 bytes)
+                pad = (2048 - (new_size % 2048)) % 2048
+                if pad > 0: f.write(b"\x00" * pad)
+                
+                new_params.append((new_size, new_pos))
 
-            new_pos = f.tell()
-            f.write(data)
+            f.truncate()
+            
+            # Atualizar Tabela de Cabeçalho
+            f.seek(header_start)
+            for size, pos in new_params:
+                f.seek(4, 1) # pula filename_pos
+                f.write(struct.pack("<I", pos))
+                f.write(struct.pack("<I", size))
+                f.seek(4, 1) # pula padding/unknown
 
-            pad = ((2048 - (new_size % 2048)) % 2048)
-            if pad > 0:
-                f.write(b"\x00" * pad)
-
-            novos_parametros.append((new_size, new_pos))
-
-        f.truncate()
-        f.seek(header_start)
-        for new_size, new_pos in novos_parametros:
-            f.seek(4, 1)
-            f.write(struct.pack("<I", new_pos))
-            f.write(struct.pack("<I", new_size))
-            f.seek(4, 1)
-
-    logger(t("insertion_completed"), color=COLOR_LOG_GREEN)
-
-
-# ==============================================================================
-# AÇÕES DOS COMANDOS (SEM THREADING)
-# ==============================================================================
-
-def action_extract():
-    path = pick_file_topmost(t("select_hog_file"), [(t("hog_files"), "*.hog"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        extract_hog(path)
+        logger(t("insertion_success"), color=COLOR_LOG_GREEN)
     except Exception as e:
-        logger(t("unexpected_error", error=str(e)), color=COLOR_LOG_RED)
-
-
-def action_rebuild():
-    path = pick_file_topmost(t("select_hog_file"), [(t("hog_files"), "*.hog"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    # pasta de extração é o nome do arquivo sem extensão
-    pasta = os.path.splitext(path)[0]
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    logger(t("recreating_to", path=pasta), color=COLOR_LOG_YELLOW)
-
-    try:
-        insert_hog(path, pasta)
-    except Exception as e:
-        logger(t("unexpected_error", error=str(e)), color=COLOR_LOG_RED)
-
+        logger(t("error", error=str(e)), color=COLOR_LOG_RED)
 
 # ==============================================================================
-# ENTRY POINT (REGISTRO)
+# REGISTRO DO PLUGIN (FLET)
 # ==============================================================================
+
 def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+    global logger, current_lang
     logger = log_func
-    get_option = option_getter
     current_lang = host_language
+
+    def on_extract_res(e: ft.FilePickerResultEvent):
+        if e.files:
+            for f in e.files: run_extraction(f.path)
+        else: logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+
+    def on_rebuild_res(e: ft.FilePickerResultEvent):
+        if e.files:
+            for f in e.files: run_rebuild(f.path)
+        else: logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+
+    fp_extract = ft.FilePicker(on_result=on_extract_res)
+    fp_rebuild = ft.FilePicker(on_result=on_rebuild_res)
 
     return {
         "name": t("plugin_name"),
         "description": t("plugin_description"),
+        "pickers": [fp_extract, fp_rebuild],
         "commands": [
-            {"label": t("extract_file"), "action": action_extract},
-            {"label": t("rebuild_file"), "action": action_rebuild},
+            {
+                "label": t("extract_file"), 
+                "action": lambda: fp_extract.pick_files(
+                    allow_multiple=True, 
+                    allowed_extensions=["hog"]
+                )
+            },
+            {
+                "label": t("rebuild_file"), 
+                "action": lambda: fp_rebuild.pick_files(
+                    allow_multiple=True, 
+                    allowed_extensions=["hog"]
+                )
+            },
         ]
     }

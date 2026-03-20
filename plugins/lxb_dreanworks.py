@@ -1,8 +1,7 @@
 import os
 import struct
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -104,21 +103,24 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÕES PARA CORRIGIR A JANELA (TOPMOST) – SUPORTE A MÚLTIPLOS ARQUIVOS
+# FilePickers globais (suporte a múltiplos arquivos)
 # ==============================================================================
-def pick_files_topmost(title, file_types):
-    """Cria uma janela Tk invisível, força ela pro topo e abre diálogo de múltipla seleção."""
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_paths = filedialog.askopenfilenames(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return list(file_paths)
+
+fp_extract = ft.FilePicker(
+    on_result=lambda e: _extract_multiple([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
+    allow_multiple=True
+)
+
+fp_rebuild = ft.FilePicker(
+    on_result=lambda e: _rebuild_multiple([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
+    allow_multiple=True
+)
 
 # ==============================================================================
 # FUNÇÕES AUXILIARES
@@ -270,55 +272,64 @@ def rebuild_lxb_from_txt(txt_path, endian):
     return True
 
 # ==============================================================================
-# AÇÕES DOS COMANDOS (SEM THREADING)
+# FUNÇÕES DE PROCESSAMENTO EM LOTE (CHAMADAS PELOS FILEPICKERS)
 # ==============================================================================
-def action_extract():
-    paths = pick_files_topmost(t("select_lxb_file"), [(t("lxb_files"), "*.lxb"), (t("all_files"), "*.*")])
-    if not paths:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
 
-    total = len(paths)
-    for idx, filepath in enumerate(paths, 1):
-        logger(t("processing", name=os.path.basename(filepath)), color=COLOR_LOG_YELLOW)
+def _extract_multiple(file_paths):
+    for path in file_paths:
+        logger(t("processing", name=path.name), color=COLOR_LOG_YELLOW)
         try:
-            path = Path(filepath)
             endian = determine_endianness(path)
             output_path = extract_lxb_text(path, endian)
             logger(t("extraction_success", path=str(output_path)), color=COLOR_LOG_GREEN)
         except Exception as e:
             logger(t("extraction_error", error=str(e)), color=COLOR_LOG_RED)
-
     logger(t("operation_completed"), color=COLOR_LOG_GREEN)
 
-def action_rebuild():
-    paths = pick_files_topmost(t("select_txt_file"), [(t("txt_files"), "*.txt"), (t("all_files"), "*.*")])
-    if not paths:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    total = len(paths)
-    for idx, filepath in enumerate(paths, 1):
-        logger(t("processing", name=os.path.basename(filepath)), color=COLOR_LOG_YELLOW)
+def _rebuild_multiple(txt_paths):
+    for txt_path in txt_paths:
+        logger(t("processing", name=txt_path.name), color=COLOR_LOG_YELLOW)
         try:
-            txt_path = Path(filepath)
             lxb_path = txt_path.with_suffix('.lxb')
             endian = determine_endianness(lxb_path)
             rebuild_lxb_from_txt(txt_path, endian)
             logger(t("recreation_success"), color=COLOR_LOG_GREEN)
         except Exception as e:
             logger(t("recreation_error", error=str(e)), color=COLOR_LOG_RED)
-
     logger(t("operation_completed"), color=COLOR_LOG_GREEN)
+
+# ==============================================================================
+# AÇÕES DOS COMANDOS (CHAMAM OS FILEPICKERS)
+# ==============================================================================
+
+def action_extract():
+    fp_extract.pick_files(
+        allowed_extensions=["lxb"],
+        dialog_title=t("select_lxb_file"),
+        allow_multiple=True
+    )
+
+def action_rebuild():
+    fp_rebuild.pick_files(
+        allowed_extensions=["txt"],
+        dialog_title=t("select_txt_file"),
+        allow_multiple=True
+    )
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.extend([fp_extract, fp_rebuild])
+        host_page.update()
 
     return {
         "name": t("plugin_name"),

@@ -3,8 +3,7 @@ import re
 import struct
 from pathlib import Path
 from typing import List, Optional, Tuple
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -229,36 +228,28 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÕES PARA CORRIGIR A JANELA (TOPMOST)
+# FilePickers globais
 # ==============================================================================
-def pick_file_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_path = filedialog.askopenfilename(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return file_path
 
-def pick_files_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_paths = filedialog.askopenfilenames(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return list(file_paths)
-
-def pick_folder_topmost(title):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    folder_path = filedialog.askdirectory(parent=root, title=title)
-    root.destroy()
-    return folder_path
+fp_extract = ft.FilePicker(
+    on_result=lambda e: _extract_files(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+fp_reimport = ft.FilePicker(
+    on_result=lambda e: _reimport_files(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+fp_ntx_extract = ft.FilePicker(
+    on_result=lambda e: _extract_ntx([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
+    allow_multiple=True
+)
+fp_ntx_import = ft.FilePicker(
+    on_result=lambda e: _import_dds(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
 
 # ==============================================================================
 # FUNÇÕES AUXILIARES (mantidas intactas)
@@ -672,12 +663,11 @@ def import_dds_back_to_ntx3(ntx_path: Path, dds_paths: List[Path]) -> int:
     return success_count
 
 # ==============================================================================
-# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA USAR LOGGER)
+# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA RECEBER CAMINHOS)
 # ==============================================================================
 
-def extract_files_from_container(container_path):
+def _extract_files(container_path: Path):
     try:
-        container_path = Path(container_path)
         output_dir = container_path.with_name(container_path.stem)
         output_dir.mkdir(exist_ok=True)
 
@@ -721,10 +711,9 @@ def extract_files_from_container(container_path):
         logger(t("extraction_error", error=str(e)), color=COLOR_LOG_RED)
 
 
-def reimport_files_to_container(container_path, import_dir):
+def _reimport_files(container_path: Path):
     try:
-        container_path = Path(container_path)
-        import_dir = Path(import_dir)
+        import_dir = container_path.with_name(container_path.stem)
 
         logger(t("reading_header"), color=COLOR_LOG_YELLOW)
 
@@ -819,14 +808,8 @@ def reimport_files_to_container(container_path, import_dir):
         logger(t("import_error", error=str(e)), color=COLOR_LOG_RED)
 
 
-def extrair_ntx_action():
-    files = pick_files_topmost(t("select_ntx_files"), [("Textura (.tex/.p3tex)", "*.tex;*.p3tex"), (t("all_files"), "*.*")])
-    if not files:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    for file_path in files:
-        path = Path(file_path)
+def _extract_ntx(file_paths: List[Path]):
+    for path in file_paths:
         logger(t("extracting_ntx", name=path.name), color=COLOR_LOG_YELLOW)
         try:
             with path.open("rb") as f:
@@ -857,26 +840,18 @@ def extrair_ntx_action():
     logger(t("operation_completed"), color=COLOR_LOG_GREEN)
 
 
-def import_dds_action():
-    ntx_file = pick_file_topmost(t("select_ntx_file"), [("Textura (.tex/.p3tex)", "*.tex;*.p3tex"), (t("all_files"), "*.*")])
-    if not ntx_file:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    ntx_path = Path(ntx_file)
+def _import_dds(ntx_path: Path):
     base = ntx_path.stem
     dirp = ntx_path.parent
     pattern = f"{base}_*.dds"
     found = sorted(dirp.glob(pattern), key=lambda p: p.name)
 
-    if found:
-        dds_paths = found
-    else:
+    if not found:
         logger(t("no_auto_dds"), color=COLOR_LOG_RED)
         return
 
     try:
-        written = import_dds_back_to_ntx3(ntx_path, dds_paths)
+        written = import_dds_back_to_ntx3(ntx_path, found)
         logger(t("msg_import_success", n=written), color=COLOR_LOG_GREEN)
     except Exception as e:
         logger(t("msg_import_fail", err=str(e)), color=COLOR_LOG_RED)
@@ -885,42 +860,48 @@ def import_dds_action():
 
 
 # ==============================================================================
-# AÇÕES DOS COMANDOS (SEM THREADING)
+# AÇÕES DOS COMANDOS (CHAMAM OS FILEPICKERS)
 # ==============================================================================
 
 def action_extract_file():
-    path = pick_file_topmost(t("select_files_file"), [(t("files_files"), "*.files"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    extract_files_from_container(path)
+    fp_extract.pick_files(
+        allowed_extensions=["files"],
+        dialog_title=t("select_files_file")
+    )
 
 def action_import_files():
-    path = pick_file_topmost(t("select_files_file"), [(t("files_files"), "*.files"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    # pasta de importação é a mesma do arquivo + stem
-    import_dir = Path(path).with_name(Path(path).stem)
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    reimport_files_to_container(path, import_dir)
+    fp_reimport.pick_files(
+        allowed_extensions=["files"],
+        dialog_title=t("select_files_file")
+    )
 
 def action_extract_ntx():
-    extrair_ntx_action()
+    fp_ntx_extract.pick_files(
+        allowed_extensions=["tex", "p3tex"],
+        dialog_title=t("select_ntx_files"),
+        allow_multiple=True
+    )
 
 def action_import_dds():
-    import_dds_action()
+    fp_ntx_import.pick_files(
+        allowed_extensions=["tex", "p3tex"],
+        dialog_title=t("select_ntx_file")
+    )
 
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.extend([fp_extract, fp_reimport, fp_ntx_extract, fp_ntx_import])
+        host_page.update()
 
     return {
         "name": t("plugin_name"),
@@ -929,6 +910,6 @@ def register_plugin(log_func, option_getter, host_language="pt_BR"):
             {"label": t("extract_file"), "action": action_extract_file},
             {"label": t("import_files"), "action": action_import_files},
             {"label": t("extract_ntx"), "action": action_extract_ntx},
-            {"label": t("import_dds"), "action": action_import_dds},  # ATENÇÃO: original tinha action_extract_ntx, mas deve ser action_import_dds
+            {"label": t("import_dds"), "action": action_import_dds},
         ]
     }

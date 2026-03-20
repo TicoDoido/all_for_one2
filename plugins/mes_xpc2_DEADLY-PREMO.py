@@ -29,8 +29,7 @@ import struct
 import re
 import zlib
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -210,28 +209,48 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÕES PARA CORRIGIR A JANELA (TOPMOST)
+# FilePickers globais
 # ==============================================================================
-def pick_file_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_path = filedialog.askopenfilename(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return file_path
 
-def pick_folder_topmost(title):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    folder_path = filedialog.askdirectory(parent=root, title=title)
-    root.destroy()
-    return folder_path
+# MES
+fp_extract_mes = ft.FilePicker(
+    on_result=lambda e: _extract_mes(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+fp_reinsert_mes = ft.FilePicker(
+    on_result=lambda e: _reinsert_mes(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+
+# XPC
+fp_extract_xpc = ft.FilePicker(
+    on_result=lambda e: _extract_xpc(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+
+# Para reinsert XPC: primeiro seleciona o arquivo, depois a pasta
+_xpc_file_to_reinsert = None  # variável temporária
+def _on_xpc_file_selected(e):
+    global _xpc_file_to_reinsert
+    if e.files:
+        _xpc_file_to_reinsert = Path(e.files[0].path)
+        fp_reinsert_xpc_folder.get_directory_path(dialog_title=t("select_folder_files"))
+    else:
+        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+
+def _on_xpc_folder_selected(e):
+    global _xpc_file_to_reinsert
+    if e.path:
+        _reinsert_xpc(_xpc_file_to_reinsert, Path(e.path))
+        _xpc_file_to_reinsert = None
+    else:
+        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+
+fp_reinsert_xpc_file = ft.FilePicker(on_result=_on_xpc_file_selected)
+fp_reinsert_xpc_folder = ft.FilePicker(on_result=_on_xpc_folder_selected)
 
 # ==============================================================================
 # UTILITÁRIOS (mantidos do original)
@@ -623,7 +642,7 @@ def build_reverse_table():
 
 REVERSE_TABLE = build_reverse_table()
 
-def extract_mes(path):
+def _extract_mes(path):
     logger(t("log_reading", path=path), color=COLOR_LOG_YELLOW)
     with open(path, "rb") as f:
         magic = f.read(4)
@@ -644,8 +663,8 @@ def extract_mes(path):
                 offsets.append(val)
         logger(t("log_offsets", n=len(offsets)), color=COLOR_LOG_YELLOW)
 
-        base = os.path.splitext(os.path.basename(path))[0]
-        out_txt_path = os.path.join(os.path.dirname(path), f"{base}.txt")
+        base = path.stem
+        out_txt_path = path.parent / f"{base}.txt"
 
         with open(out_txt_path, "w", encoding="utf-8") as out:
             for idx, off in enumerate(offsets, start=1):
@@ -679,20 +698,20 @@ def extract_mes(path):
                 out.write(text)
                 out.write("\n")
 
-        logger(t("log_extracted", out=out_txt_path), color=COLOR_LOG_GREEN)
-        return out_txt_path
+    logger(t("log_extracted", out=out_txt_path), color=COLOR_LOG_GREEN)
+    return out_txt_path
 
-def reinsert_mes(txt_path):
-    base = os.path.splitext(os.path.basename(txt_path))[0]
-    mes_path = os.path.join(os.path.dirname(txt_path), f"{base}.MES")
-    original_mes = os.path.join(os.path.dirname(txt_path), f"{base}.MES")
+def _reinsert_mes(txt_path):
+    base = txt_path.stem
+    mes_path = txt_path.parent / f"{base}.MES"
+    original_mes = mes_path
 
     with open(txt_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
     ids_bytes_list = []
 
-    if os.path.exists(original_mes):
+    if original_mes.exists():
         try:
             with open(original_mes, "rb") as orig:
                 magic = orig.read(4)
@@ -813,7 +832,7 @@ def reinsert_mes(txt_path):
         blocks.append(id_bytes + text_bytes)
 
     raw_header = None
-    if os.path.exists(original_mes):
+    if original_mes.exists():
         try:
             with open(original_mes, 'rb') as orig:
                 orig.seek(8)
@@ -854,72 +873,60 @@ def reinsert_mes(txt_path):
     logger(t("log_rewrite_done", out=mes_path), color=COLOR_LOG_GREEN)
     return mes_path
 
+def _extract_xpc(path):
+    extractor = XPCExtractor()
+    extractor.extract(path)
+    logger(t("msg_extract_done"), color=COLOR_LOG_GREEN)
+
+def _reinsert_xpc(xpc_path, folder):
+    extractor = XPCExtractor()
+    extractor.reinsert_files(xpc_path, folder)
+    logger(t("msg_reinsert_done"), color=COLOR_LOG_GREEN)
+
 # ==============================================================================
-# AÇÕES DOS COMANDOS (SEM THREADING)
+# AÇÕES DOS COMANDOS (CHAMAM OS FILEPICKERS)
 # ==============================================================================
 
 def action_extract_mes():
-    path = pick_file_topmost(t("select_mes_file"), [("MES files", "*.MES"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        out = extract_mes(path)
-        logger(t("msg_done_extract", out=out), color=COLOR_LOG_GREEN)
-    except Exception as e:
-        logger(t("msg_title_error") + ": " + str(e), color=COLOR_LOG_RED)
+    fp_extract_mes.pick_files(
+        allowed_extensions=["MES", "mes"],
+        dialog_title=t("select_mes_file")
+    )
 
 def action_reinsert_mes():
-    path = pick_file_topmost(t("select_txt_file"), [("TXT files", "*.txt"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        out = reinsert_mes(path)
-        logger(t("msg_done_reinsert", out=out), color=COLOR_LOG_GREEN)
-    except Exception as e:
-        logger(t("msg_title_error") + ": " + str(e), color=COLOR_LOG_RED)
+    fp_reinsert_mes.pick_files(
+        allowed_extensions=["txt"],
+        dialog_title=t("select_txt_file")
+    )
 
 def action_extract_xpc():
-    path = pick_file_topmost(t("select_xpc_file"), [("XPC files", "*.xpc;*.XPC;*.bin"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        extractor = XPCExtractor()
-        extractor.extract(path)
-        logger(t("msg_extract_done"), color=COLOR_LOG_GREEN)
-    except Exception as e:
-        logger(t("msg_title_error") + ": " + str(e), color=COLOR_LOG_RED)
+    fp_extract_xpc.pick_files(
+        allowed_extensions=["xpc", "XPC", "bin"],
+        dialog_title=t("select_xpc_file")
+    )
 
 def action_reinsert_xpc():
-    path = pick_file_topmost(t("select_xpc_file_folder"), [("XPC files", "*.xpc;*.XPC;*.bin"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    folder = pick_folder_topmost(t("select_folder_files"))
-    if not folder:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        extractor = XPCExtractor()
-        extractor.reinsert_files(path, folder)
-        logger(t("msg_reinsert_done"), color=COLOR_LOG_GREEN)
-    except Exception as e:
-        logger(t("msg_title_error") + ": " + str(e), color=COLOR_LOG_RED)
+    fp_reinsert_xpc_file.pick_files(
+        allowed_extensions=["xpc", "XPC", "bin"],
+        dialog_title=t("select_xpc_file_folder")
+    )
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.extend([
+            fp_extract_mes, fp_reinsert_mes,
+            fp_extract_xpc, fp_reinsert_xpc_file, fp_reinsert_xpc_folder
+        ])
+        host_page.update()
 
     return {
         "name": t("plugin_name"),

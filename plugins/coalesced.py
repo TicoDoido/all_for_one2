@@ -1,6 +1,7 @@
 import os
 import struct
 from pathlib import Path
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -84,27 +85,28 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÃO PARA CORRIGIR A JANELA (TOPMOST)
+# FilePickers globais
 # ==============================================================================
-import tkinter as tk
-from tkinter import filedialog
 
-def pick_file_topmost(title, file_types):
-    """Cria uma janela Tk invisível, força ela pro topo e abre o diálogo."""
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_path = filedialog.askopenfilename(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return file_path
+fp_extract = ft.FilePicker(
+    on_result=lambda e: read_binary_file(e.files[0].path) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+fp_rebuild = ft.FilePicker(
+    on_result=lambda e: rebuild_binary_file(
+        e.files[0].path,
+        os.path.splitext(e.files[0].path)[0] + "_MOD" + os.path.splitext(e.files[0].path)[1],
+        os.path.splitext(e.files[0].path)[0]
+    ) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
 
 # ==============================================================================
-# LÓGICA DE NEGÓCIO (CONVERSÃO) – Adaptada para usar logger e sem messagebox
+# LÓGICA DE NEGÓCIO (CONVERSÃO) – Inalterada
 # ==============================================================================
 
 def read_binary_file(file_path):
@@ -666,44 +668,35 @@ def rebuild_binary_file(original_file_path, output_file_path, extracted_folder):
 
 
 # ==============================================================================
-# AÇÕES DOS COMANDOS (USAM O SELETOR DE ARQUIVO TOPMOST)
+# AÇÕES DOS COMANDOS (USAM OS FILEPICKERS)
 # ==============================================================================
 
 def action_extract():
-    path = pick_file_topmost(t("select_original_file"), [("Coalesced files", "*.bin;*.xxx"), ("All files", "*.*")])
-    
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    read_binary_file(path)
-
+    fp_extract.pick_files(
+        allowed_extensions=["bin", "xxx"],
+        dialog_title=t("select_original_file")
+    )
 
 def action_rebuild():
-    original_path = pick_file_topmost(t("select_original_file"), [("Coalesced files", "*.bin;*.xxx"), ("All files", "*.*")])
-    
-    if not original_path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    # Define caminhos de saída e pasta extraída automaticamente
-    extracted_folder = os.path.splitext(original_path)[0]
-    file_extension = os.path.splitext(original_path)[1]
-    output_path = extracted_folder + "_MOD" + file_extension
-
-    logger(t("processing", name=os.path.basename(original_path)), color=COLOR_LOG_YELLOW)
-    rebuild_binary_file(original_path, output_path, extracted_folder)
-
+    fp_rebuild.pick_files(
+        allowed_extensions=["bin", "xxx"],
+        dialog_title=t("select_original_file")
+    )
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.extend([fp_extract, fp_rebuild])
+        host_page.update()
 
     return {
         "name": t("plugin_name"),

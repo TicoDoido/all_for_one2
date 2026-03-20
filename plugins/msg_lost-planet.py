@@ -1,8 +1,7 @@
 import os
 import struct
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -95,23 +94,27 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÕES PARA CORRIGIR A JANELA (TOPMOST) – SUPORTE A MÚLTIPLOS ARQUIVOS
+# FilePickers globais (múltipla seleção)
 # ==============================================================================
-def pick_files_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_paths = filedialog.askopenfilenames(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return list(file_paths)
+
+fp_extract = ft.FilePicker(
+    on_result=lambda e: _process_extract([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
+    allow_multiple=True
+)
+
+fp_rebuild = ft.FilePicker(
+    on_result=lambda e: _process_rebuild([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
+    allow_multiple=True
+)
 
 # ==============================================================================
-# TABELAS DE CONVERSÃO
+# TABELAS DE CONVERSÃO (mantidas intactas)
 # ==============================================================================
 DEAD_RISING_TABLE = {
     b'\x01\x00\x00\x00\x00\x04': b'[FIM]\n',
@@ -358,10 +361,10 @@ LOST_PLANET_TABLE = {
 }
 
 # ==============================================================================
-# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA USAR LOGGER)
+# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA RECEBER PATH)
 # ==============================================================================
 
-def convert_msg_to_text(msg_path, txt_path):
+def _convert_msg_to_text(msg_path: Path, txt_path: Path):
     """Convert MSG file to TXT using appropriate game table"""
     game = get_option("tabela_jogo") or "Lost Planet EC(PS3)"
     table = LOST_PLANET_TABLE if game == "Lost Planet EC(PS3)" else DEAD_RISING_TABLE
@@ -394,7 +397,7 @@ def convert_msg_to_text(msg_path, txt_path):
 
     return True
 
-def convert_text_to_msg(txt_path, msg_path):
+def _convert_text_to_msg(txt_path: Path, msg_path: Path):
     """Convert TXT file back to MSG using appropriate game table"""
     game = get_option("tabela_jogo") or "Lost Planet EC(PS3)"
     table = LOST_PLANET_TABLE if game == "Lost Planet EC(PS3)" else DEAD_RISING_TABLE
@@ -406,6 +409,7 @@ def convert_text_to_msg(txt_path, msg_path):
 
     text = txt_path.read_text(encoding='utf-8')
 
+    # Se o arquivo .msg não existir, cria um esqueleto
     if not msg_path.exists():
         with msg_path.open('wb') as f:
             f.write(b'MSG1')
@@ -457,40 +461,25 @@ def convert_text_to_msg(txt_path, msg_path):
     return True
 
 # ==============================================================================
-# AÇÕES DOS COMANDOS (SEM THREADING)
+# FUNÇÕES DE PROCESSAMENTO EM LOTE
 # ==============================================================================
 
-def action_extract():
-    paths = pick_files_topmost(t("select_msg_file"), [(t("msg_files"), "*.msg"), (t("all_files"), "*.*")])
-    if not paths:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    total = len(paths)
-    for idx, filepath in enumerate(paths, 1):
-        logger(t("processing", name=os.path.basename(filepath)), color=COLOR_LOG_YELLOW)
+def _process_extract(msg_paths):
+    for msg_path in msg_paths:
+        logger(t("processing", name=msg_path.name), color=COLOR_LOG_YELLOW)
         try:
-            msg_path = Path(filepath)
             txt_path = msg_path.with_suffix('.txt')
-            convert_msg_to_text(msg_path, txt_path)
+            _convert_msg_to_text(msg_path, txt_path)
             logger(t("extraction_success", path=str(txt_path)), color=COLOR_LOG_GREEN)
         except Exception as e:
             logger(t("extraction_error", error=str(e)), color=COLOR_LOG_RED)
-
     logger(t("operation_completed"), color=COLOR_LOG_GREEN)
 
-def action_rebuild():
-    paths = pick_files_topmost(t("select_txt_file"), [(t("txt_files"), "*.txt"), (t("all_files"), "*.*")])
-    if not paths:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    total = len(paths)
-    for idx, filepath in enumerate(paths, 1):
-        logger(t("processing", name=os.path.basename(filepath)), color=COLOR_LOG_YELLOW)
+def _process_rebuild(txt_paths):
+    for txt_path in txt_paths:
+        logger(t("processing", name=txt_path.name), color=COLOR_LOG_YELLOW)
         try:
-            txt_path = Path(filepath)
-
+            # Tenta encontrar o .msg correspondente
             msg_path_com_ext = txt_path.with_suffix('.msg')
             msg_path_no_ext = txt_path.with_suffix('')
             if msg_path_com_ext.exists():
@@ -500,21 +489,44 @@ def action_rebuild():
             else:
                 msg_path = msg_path_com_ext  # será criado
 
-            convert_text_to_msg(txt_path, msg_path)
+            _convert_text_to_msg(txt_path, msg_path)
             logger(t("recreation_success", path=str(msg_path)), color=COLOR_LOG_GREEN)
         except Exception as e:
             logger(t("recreation_error", error=str(e)), color=COLOR_LOG_RED)
-
     logger(t("operation_completed"), color=COLOR_LOG_GREEN)
+
+# ==============================================================================
+# AÇÕES DOS COMANDOS (CHAMAM OS FILEPICKERS)
+# ==============================================================================
+
+def action_extract():
+    fp_extract.pick_files(
+        allowed_extensions=["msg"],
+        dialog_title=t("select_msg_file"),
+        allow_multiple=True
+    )
+
+def action_rebuild():
+    fp_rebuild.pick_files(
+        allowed_extensions=["txt"],
+        dialog_title=t("select_txt_file"),
+        allow_multiple=True
+    )
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.extend([fp_extract, fp_rebuild])
+        host_page.update()
 
     return {
         "name": t("plugin_name"),

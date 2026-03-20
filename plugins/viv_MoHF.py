@@ -1,8 +1,7 @@
 import os
 import struct
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
+import flet as ft
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -89,23 +88,24 @@ COLOR_LOG_RED = "#EF4444"
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÃO PARA CORRIGIR A JANELA (TOPMOST)
+# FilePickers globais
 # ==============================================================================
-def pick_file_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_path = filedialog.askopenfilename(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return file_path
+
+fp_extract = ft.FilePicker(
+    on_result=lambda e: _extract_viv(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
+fp_rebuild = ft.FilePicker(
+    on_result=lambda e: _rebuild_viv(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
 
 # ==============================================================================
-# FUNÇÕES AUXILIARES (MANTIDAS DO ORIGINAL)
+# FUNÇÕES AUXILIARES (mantidas do original)
 # ==============================================================================
 ALIGNMENT = 64
 
@@ -130,7 +130,13 @@ def read_cstring(f):
         pieces.append(b)
     return b''.join(pieces)
 
-def extract_viv(path):
+# ==============================================================================
+# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA PATH)
+# ==============================================================================
+def _extract_viv(path: Path):
+    """Extrai arquivos do arquivo .viv."""
+    logger(t("processing", name=path.name), color=COLOR_LOG_YELLOW)
+
     with open(path, 'rb') as f:
         magic = f.read(2)
         if magic != b'\xC0\xFB':
@@ -146,19 +152,19 @@ def extract_viv(path):
             name = read_cstring(f).decode('utf-8', errors='ignore')
             entries.append({'offset': offset, 'size': size, 'name': name})
 
-        base_dir = os.path.dirname(path)
-        base_name = os.path.splitext(os.path.basename(path))[0]
-        out_dir = os.path.join(base_dir, base_name)
-        os.makedirs(out_dir, exist_ok=True)
+        base_dir = path.parent
+        base_name = path.stem
+        out_dir = base_dir / base_name
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-        logger(t("extracting_to", path=out_dir), color=COLOR_LOG_YELLOW)
+        logger(t("extracting_to", path=str(out_dir)), color=COLOR_LOG_YELLOW)
 
         for i, e in enumerate(entries):
             f.seek(e['offset'])
             data = f.read(e['size'])
 
-            out_path = os.path.join(out_dir, e['name'])
-            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+            out_path = out_dir / e['name']
+            out_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(out_path, 'wb') as out_f:
                 out_f.write(data)
@@ -166,15 +172,20 @@ def extract_viv(path):
             percent = int((i + 1) / total_files * 100)
             logger(t("progress_status", percent=percent, current=i+1, total=total_files), color=COLOR_LOG_YELLOW)
 
+        logger(t("extraction_success", path=str(out_dir)), color=COLOR_LOG_GREEN)
         return out_dir
 
-def rebuild_viv(original_path):
-    base_dir = os.path.dirname(original_path)
-    base_name = os.path.splitext(os.path.basename(original_path))[0]
-    extracted_folder = os.path.join(base_dir, base_name)
 
-    if not os.path.isdir(extracted_folder):
-        raise FileNotFoundError(t("extracted_folder_not_found", folder=extracted_folder))
+def _rebuild_viv(original_path: Path):
+    """Reconstroi o arquivo .viv a partir da pasta extraída."""
+    logger(t("processing", name=original_path.name), color=COLOR_LOG_YELLOW)
+
+    base_dir = original_path.parent
+    base_name = original_path.stem
+    extracted_folder = base_dir / base_name
+
+    if not extracted_folder.is_dir():
+        raise FileNotFoundError(t("extracted_folder_not_found", folder=str(extracted_folder)))
 
     with open(original_path, 'r+b') as f:
         magic = f.read(2)
@@ -197,13 +208,13 @@ def rebuild_viv(original_path):
         current_offset = align64(header_size)
         updated_entries = []
 
-        logger(t("recreating_to", path=original_path), color=COLOR_LOG_YELLOW)
+        logger(t("recreating_to", path=str(original_path)), color=COLOR_LOG_YELLOW)
 
         for i, e in enumerate(entries):
             name = e["name"]
-            file_path = os.path.join(extracted_folder, name)
+            file_path = extracted_folder / name
 
-            if not os.path.isfile(file_path):
+            if not file_path.is_file():
                 raise FileNotFoundError(t("file_not_found", name=name))
 
             with open(file_path, 'rb') as file_f:
@@ -234,43 +245,38 @@ def rebuild_viv(original_path):
             f.write(write_3byte_be_int(e["offset"]))
             f.write(write_3byte_be_int(e["size"]))
 
+    logger(t("rebuild_success", path=str(original_path)), color=COLOR_LOG_GREEN)
+
+
 # ==============================================================================
-# AÇÕES DOS COMANDOS (SEM THREADING)
+# AÇÕES DOS COMANDOS (CHAMAM OS FILEPICKERS)
 # ==============================================================================
 def action_extract():
-    path = pick_file_topmost(t("select_viv_file"), [(t("viv_files"), "*.viv"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        out_dir = extract_viv(path)
-        logger(t("extraction_success", path=out_dir), color=COLOR_LOG_GREEN)
-    except Exception as e:
-        logger(t("unexpected_error", error=str(e)), color=COLOR_LOG_RED)
+    fp_extract.pick_files(
+        allowed_extensions=["viv"],
+        dialog_title=t("select_viv_file")
+    )
 
 def action_rebuild():
-    path = pick_file_topmost(t("select_viv_file"), [(t("viv_files"), "*.viv"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
+    fp_rebuild.pick_files(
+        allowed_extensions=["viv"],
+        dialog_title=t("select_viv_file")
+    )
 
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    try:
-        rebuild_viv(path)
-        logger(t("rebuild_success", path=path), color=COLOR_LOG_GREEN)
-    except Exception as e:
-        logger(t("unexpected_error", error=str(e)), color=COLOR_LOG_RED)
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.extend([fp_extract, fp_rebuild])
+        host_page.update()
 
     return {
         "name": t("plugin_name"),

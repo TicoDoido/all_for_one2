@@ -1,9 +1,9 @@
+# Plugin Dead Rising ARC
 import os
 import struct
 import zlib
+import flet as ft
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -16,31 +16,21 @@ PLUGIN_TRANSLATIONS = {
         "extract_file": "Extrair Arquivo",
         "rebuild_file": "Reconstruir Arquivo",
         "select_arc_file": "Selecione arquivo .ARC",
-        "arc_files": "Arquivos ARC",
-        "all_files": "Todos os arquivos",
         "success": "Sucesso",
         "extraction_success": "{count} arquivos extraídos para: {path}",
         "recreation_success": "Arquivo {file} remontado com sucesso",
-        "error": "Erro",
-        "extraction_error": "Erro durante extração: {error}",
-        "recreation_error": "Erro durante reconstrução: {error}",
-        "file_not_found": "Arquivo não encontrado: {file}",
         "invalid_magic": "Magic inválido. Esperado \\x00CRA ou ARC\\x00",
-        "version_warning": "Feito para versão 0.4\nEncontrado: 0.{version}",
+        "version_warning": "Feito para versão 0.4. Encontrado: 0.{version}",
         "processing_file": "Processando: {file}",
         "writing_file": "Gravando: {file}",
         "file_error": "Erro no arquivo '{file}': {error}",
         "compression_mode": "Modo de Compactação",
-        "zlib": "ZLIB (padrão)",
-        "deflate": "DEFLATE (raw)",
-        "N/A": "Sem compressão",
         "compression_attempt": "Tentando {method} em '{file}'",
         "compression_failed": "Falha ao comprimir '{file}': {error}",
         "rebuilding_at": "Reinserindo em offset: {offset}",
         "header_update": "Atualizando cabeçalhos",
         "cancelled": "Seleção cancelada.",
         "processing": "Processando: {name}...",
-        "operation_completed": "Operação concluída."
     },
     "en_US": {
         "plugin_name": "Dead Rising V 0.4 XBOX 360/PC ARC",
@@ -48,98 +38,42 @@ PLUGIN_TRANSLATIONS = {
         "extract_file": "Extract File",
         "rebuild_file": "Rebuild File",
         "select_arc_file": "Select .ARC file",
-        "arc_files": "ARC Files",
-        "all_files": "All files",
         "success": "Success",
         "extraction_success": "{count} files extracted to: {path}",
         "recreation_success": "File {file} rebuilt successfully",
-        "error": "Error",
-        "extraction_error": "Error during extraction: {error}",
-        "recreation_error": "Error during rebuilding: {error}",
-        "file_not_found": "File not found: {file}",
         "invalid_magic": "Invalid magic. Expected \\x00CRA or ARC\\x00",
-        "version_warning": "Made for version 0.4\nFound: 0.{version}",
+        "version_warning": "Made for version 0.4. Found: 0.{version}",
         "processing_file": "Processing: {file}",
         "writing_file": "Writing: {file}",
         "file_error": "File error '{file}': {error}",
         "compression_mode": "Compression Mode",
-        "zlib": "ZLIB (standard)",
-        "deflate": "DEFLATE (raw)",
-        "N/A": "No compression",
         "compression_attempt": "Trying {method} on '{file}'",
         "compression_failed": "Compression failed '{file}': {error}",
         "rebuilding_at": "Rebuilding at offset: {offset}",
         "header_update": "Updating headers",
         "cancelled": "Selection cancelled.",
         "processing": "Processing: {name}...",
-        "operation_completed": "Operation completed."
-    },
-    "es_ES": {
-        "plugin_name": "ARC Dead Rising V 0.4 XBOX 360/PC",
-        "plugin_description": "Extrae y recrea archivos .arc Dead Rising Xbox 360/PC",
-        "extract_file": "Extraer Archivo",
-        "rebuild_file": "Reconstruir Archivo",
-        "select_arc_file": "Seleccionar archivo .ARC",
-        "arc_files": "Archivos ARC",
-        "all_files": "Todos los archivos",
-        "success": "Éxito",
-        "extraction_success": "{count} archivos extraídos en: {path}",
-        "recreation_success": "Archivo {file} recreado con éxito",
-        "error": "Error",
-        "extraction_error": "Error durante extracción: {error}",
-        "recreation_error": "Error durante reconstrucción: {error}",
-        "file_not_found": "Archivo no encontrado: {file}",
-        "invalid_magic": "Magic inválido. Se esperaba \\x00CRA o ARC\\x00",
-        "version_warning": "Hecho para versión 0.4\nEncontrado: 0.{version}",
-        "processing_file": "Procesando: {file}",
-        "writing_file": "Escribiendo: {file}",
-        "file_error": "Error en archivo '{file}': {error}",
-        "compression_mode": "Modo de Compresión",
-        "zlib": "ZLIB (estándar)",
-        "deflate": "DEFLATE (raw)",
-        "N/A": "Sin compresión",
-        "compression_attempt": "Intentando {method} en '{file}'",
-        "compression_failed": "Fallo al comprimir '{file}': {error}",
-        "rebuilding_at": "Reinsertando en offset: {offset}",
-        "header_update": "Actualizando cabeceras",
-        "cancelled": "Selección cancelada.",
-        "processing": "Procesando: {name}...",
-        "operation_completed": "Operación completada."
     }
 }
 
-# Cores usadas no All For One
 COLOR_LOG_GREEN = "#4ADE80"
 COLOR_LOG_YELLOW = "#FACC15"
 COLOR_LOG_RED = "#EF4444"
 
-# Variáveis globais injetadas pelo sistema
 logger = None
 get_option = None
 current_lang = "pt_BR"
+host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# FUNÇÃO PARA CORRIGIR A JANELA (TOPMOST)
-# ==============================================================================
-def pick_file_topmost(title, file_types):
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)
-    file_path = filedialog.askopenfilename(parent=root, title=title, filetypes=file_types)
-    root.destroy()
-    return file_path
-
-# ==============================================================================
 # FUNÇÕES AUXILIARES
 # ==============================================================================
 def determine_endian(magic):
-    if magic == b'\x00CRA':
-        return '>'
-    elif magic == b'ARC\x00':
-        return '<'
+    if magic == b'\x00CRA': return '>'
+    elif magic == b'ARC\x00': return '<'
     return None
 
 def try_decompression(data, original_size, compressed_size, filename):
@@ -147,14 +81,11 @@ def try_decompression(data, original_size, compressed_size, filename):
         return data
     try:
         return zlib.decompress(data)
-    except zlib.error as err_zlib:
-        logger(t("compression_attempt", method="ZLIB", file=filename), color=COLOR_LOG_YELLOW)
-        logger(t("compression_failed", file=filename, error=str(err_zlib)), color=COLOR_LOG_RED)
+    except zlib.error:
         try:
             return zlib.decompress(data, -zlib.MAX_WBITS)
-        except zlib.error as err_deflate:
-            logger(t("compression_attempt", method="DEFLATE", file=filename), color=COLOR_LOG_YELLOW)
-            logger(t("compression_failed", file=filename, error=str(err_deflate)), color=COLOR_LOG_RED)
+        except zlib.error as e:
+            if logger: logger(t("compression_failed", file=filename, error=str(e)), color=COLOR_LOG_RED)
             return data
 
 def apply_compression(data, mode):
@@ -167,25 +98,26 @@ def apply_compression(data, mode):
         else:  # zlib
             return zlib.compress(data)
     except Exception as e:
-        logger(t("compression_failed", file="", error=str(e)), color=COLOR_LOG_RED)
+        if logger: logger(t("compression_failed", file="", error=str(e)), color=COLOR_LOG_RED)
         return data
 
 # ==============================================================================
-# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA USAR LOGGER)
+# OPERAÇÕES ARC
 # ==============================================================================
 def extract_arc(arc_path):
     try:
-        arc_path = Path(arc_path)
-        with arc_path.open('rb') as f:
+        if not arc_path: return
+        path_obj = Path(arc_path)
+        with path_obj.open('rb') as f:
             magic = f.read(4)
             endian = determine_endian(magic)
             if not endian:
-                logger(t("invalid_magic"), color=COLOR_LOG_RED)
-                return False
+                if logger: logger(t("invalid_magic"), color=COLOR_LOG_RED)
+                return
 
             version = struct.unpack(endian + 'H', f.read(2))[0]
             if version != 4:
-                logger(t("version_warning", version=version), color=COLOR_LOG_YELLOW)
+                if logger: logger(t("version_warning", version=version), color=COLOR_LOG_YELLOW)
 
             file_count = struct.unpack(endian + 'H', f.read(2))[0]
             entries = []
@@ -195,67 +127,51 @@ def extract_arc(arc_path):
                 name_str = name_bytes.split(b'\x00', 1)[0].decode('utf-8', errors='ignore')
                 file_id = f.read(4).hex().upper()
                 full_name = f"{name_str}_{file_id}"
-
-                compressed_size = struct.unpack(endian + 'I', f.read(4))[0]
-                original_size = struct.unpack(endian + 'I', f.read(4))[0]
+                
+                c_size = struct.unpack(endian + 'I', f.read(4))[0]
+                o_size = struct.unpack(endian + 'I', f.read(4))[0]
                 offset = struct.unpack(endian + 'I', f.read(4))[0]
+                entries.append((full_name, c_size, o_size, offset))
 
-                entries.append((full_name, compressed_size, original_size, offset))
-
-        output_dir = arc_path.with_name(arc_path.stem)
+        output_dir = path_obj.with_name(path_obj.stem)
         output_dir.mkdir(exist_ok=True)
-        logger(t("extracting_to", path=str(output_dir)), color=COLOR_LOG_YELLOW)
 
-        with arc_path.open('rb') as f:
-            for name, compressed_size, original_size, offset in entries:
+        with path_obj.open('rb') as f:
+            for name, c_size, o_size, offset in entries:
                 try:
-                    logger(t("processing_file", file=name), color=COLOR_LOG_YELLOW)
-                    output_path = output_dir / name
-                    output_path.parent.mkdir(parents=True, exist_ok=True)
-
+                    if logger: logger(t("processing_file", file=name), color=COLOR_LOG_YELLOW)
+                    out_path = output_dir / name
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                    
                     f.seek(offset)
-                    file_data = f.read(compressed_size)
+                    data = f.read(c_size)
+                    data = try_decompression(data, o_size, c_size, name)
+                    out_path.write_bytes(data)
+                except Exception as fe:
+                    if logger: logger(t("file_error", file=name, error=str(fe)), color=COLOR_LOG_RED)
 
-                    file_data = try_decompression(file_data, original_size, compressed_size, name)
-
-                    output_path.write_bytes(file_data)
-                    logger(t("writing_file", file=name), color=COLOR_LOG_GREEN)
-
-                except Exception as file_error:
-                    logger(t("file_error", file=name, error=str(file_error)), color=COLOR_LOG_RED)
-                    continue
-
-        logger(t("extraction_success", count=file_count, path=str(output_dir)), color=COLOR_LOG_GREEN)
-        return True
-
+        if logger: logger(t("extraction_success", count=file_count, path=str(output_dir)), color=COLOR_LOG_GREEN)
     except Exception as e:
-        logger(t("extraction_error", error=str(e)), color=COLOR_LOG_RED)
-        return False
+        if logger: logger(t("extraction_error", error=str(e)), color=COLOR_LOG_RED)
 
 def rebuild_arc(arc_path):
     try:
-        arc_path = Path(arc_path)
-        compression_mode = get_option("modo_compactacao") or "zlib"
+        if not arc_path: return
+        path_obj = Path(arc_path)
+        mode = get_option("modo_compactacao") or "zlib"
 
-        with arc_path.open('r+b') as f:
+        with path_obj.open('r+b') as f:
             magic = f.read(4)
             endian = determine_endian(magic)
             if not endian:
-                logger(t("invalid_magic"), color=COLOR_LOG_RED)
-                return False
+                if logger: logger(t("invalid_magic"), color=COLOR_LOG_RED)
+                return
 
-            f.seek(4)
-            version = struct.unpack(endian + 'H', f.read(2))[0]
-            if version != 4:
-                logger(t("version_warning", version=version), color=COLOR_LOG_YELLOW)
-
+            f.seek(6)
             file_count = struct.unpack(endian + 'H', f.read(2))[0]
-            logger(f"Total files: {file_count}", color=COLOR_LOG_YELLOW)
-
             header_size = 8 + (80 * file_count)
             f.seek(header_size)
             data_start = f.tell()
-            logger(t("rebuilding_at", offset=data_start), color=COLOR_LOG_YELLOW)
 
             entries = []
             f.seek(8)
@@ -264,84 +180,64 @@ def rebuild_arc(arc_path):
                 name_str = name_bytes.split(b'\x00', 1)[0].decode('utf-8', errors='ignore')
                 file_id = f.read(4).hex().upper()
                 full_name = f"{name_str}_{file_id}"
+                c_size = struct.unpack(endian + 'I', f.read(4))[0]
+                o_size = struct.unpack(endian + 'I', f.read(4))[0]
+                f.seek(4, 1) # pular offset antigo
+                entries.append((full_name, c_size, o_size))
 
-                compressed_size = struct.unpack(endian + 'I', f.read(4))[0]
-                original_size = struct.unpack(endian + 'I', f.read(4))[0]
-                offset = struct.unpack(endian + 'I', f.read(4))[0]
-
-                entries.append((full_name, compressed_size, original_size))
-
-            new_data = []
+            new_metadata = []
             f.seek(data_start)
-            extracted_dir = arc_path.with_name(arc_path.stem)
+            src_dir = path_obj.with_name(path_obj.stem)
 
-            for name, original_compressed, original_size in entries:
-                file_path = extracted_dir / name
-                if not file_path.exists():
-                    logger(t("file_not_found", file=str(file_path)), color=COLOR_LOG_RED)
-                    return False
-
-                file_data = file_path.read_bytes()
-                current_offset = f.tell()
-                logger(t("rebuilding_at", offset=current_offset), color=COLOR_LOG_YELLOW)
-
-                if original_size > original_compressed:
-                    compressed_data = apply_compression(file_data, compression_mode)
-                    f.write(compressed_data)
-                    new_compressed = len(compressed_data)
-                    logger(f"[OK] {t(compression_mode)}: {name}", color=COLOR_LOG_GREEN)
+            for name, old_c, old_o in entries:
+                file_p = src_dir / name
+                if not file_p.exists():
+                    if logger: logger(t("file_not_found", file=name), color=COLOR_LOG_RED)
+                    return
+                
+                raw_data = file_p.read_bytes()
+                curr_offset = f.tell()
+                
+                if old_o > old_c: # Se era comprimido antes
+                    comp_data = apply_compression(raw_data, mode)
+                    f.write(comp_data)
+                    new_metadata.append((curr_offset, len(raw_data), len(comp_data)))
                 else:
-                    f.write(file_data)
-                    new_compressed = len(file_data)
-                    logger(f"[OK] Sem compressão: {name}", color=COLOR_LOG_GREEN)
+                    f.write(raw_data)
+                    new_metadata.append((curr_offset, len(raw_data), len(raw_data)))
 
-                new_data.append((current_offset, len(file_data), new_compressed))
-
-            logger(t("header_update"), color=COLOR_LOG_YELLOW)
+            # Atualiza Cabeçalhos
             f.seek(8)
-            for idx in range(file_count):
-                f.seek(68, 1)
-                f.write(struct.pack(endian + 'I', new_data[idx][2]))
-                if compression_mode != "N/A":
-                    f.write(struct.pack(endian + 'I', new_data[idx][1]))
-                else:
-                    f.seek(4, 1)
-                f.write(struct.pack(endian + 'I', new_data[idx][0]))
+            for i in range(file_count):
+                f.seek(64 + 4, 1) # pula nome e ID
+                f.write(struct.pack(endian + 'I', new_metadata[i][2])) # comp_size
+                f.write(struct.pack(endian + 'I', new_metadata[i][1])) # orig_size
+                f.write(struct.pack(endian + 'I', new_metadata[i][0])) # offset
 
-        logger(t("recreation_success", file=arc_path.name), color=COLOR_LOG_GREEN)
-        return True
-
+        if logger: logger(t("recreation_success", file=path_obj.name), color=COLOR_LOG_GREEN)
     except Exception as e:
-        logger(t("recreation_error", error=str(e)), color=COLOR_LOG_RED)
-        return False
+        if logger: logger(t("recreation_error", error=str(e)), color=COLOR_LOG_RED)
 
 # ==============================================================================
-# AÇÕES DOS COMANDOS (SEM THREADING)
+# FLET FILE PICKERS
 # ==============================================================================
-def action_extract():
-    path = pick_file_topmost(t("select_arc_file"), [(t("arc_files"), "*.arc"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    extract_arc(path)
 
-def action_rebuild():
-    path = pick_file_topmost(t("select_arc_file"), [(t("arc_files"), "*.arc"), (t("all_files"), "*.*")])
-    if not path:
-        logger(t("cancelled"), color=COLOR_LOG_YELLOW)
-        return
-    logger(t("processing", name=os.path.basename(path)), color=COLOR_LOG_YELLOW)
-    rebuild_arc(path)
+fp_extract = ft.FilePicker(on_result=lambda e: [extract_arc(f.path) for f in e.files] if e.files else None)
+fp_rebuild = ft.FilePicker(on_result=lambda e: [rebuild_arc(f.path) for f in e.files] if e.files else None)
 
 # ==============================================================================
-# ENTRY POINT (REGISTRO)
+# REGISTRO
 # ==============================================================================
-def register_plugin(log_func, option_getter, host_language="pt_BR"):
-    global logger, get_option, current_lang
+def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
+    global logger, get_option, current_lang, host_page
     logger = log_func
     get_option = option_getter
     current_lang = host_language
+    host_page = page
+
+    if host_page:
+        host_page.overlay.extend([fp_extract, fp_rebuild])
+        host_page.update()
 
     return {
         "name": t("plugin_name"),
@@ -354,7 +250,7 @@ def register_plugin(log_func, option_getter, host_language="pt_BR"):
             }
         ],
         "commands": [
-            {"label": t("extract_file"), "action": action_extract},
-            {"label": t("rebuild_file"), "action": action_rebuild},
+            {"label": t("extract_file"), "action": lambda: fp_extract.pick_files(allowed_extensions=["arc"])},
+            {"label": t("rebuild_file"), "action": lambda: fp_rebuild.pick_files(allowed_extensions=["arc"])},
         ]
     }
