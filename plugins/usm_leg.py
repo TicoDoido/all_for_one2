@@ -1,9 +1,9 @@
 # Originalmente feito por Denis Moreno
 import os
-import struct
 import re
-import flet as ft
+import struct
 from pathlib import Path
+import flet as ft
 from typing import List, Dict, Any, Tuple, Optional
 
 # ==============================================================================
@@ -14,32 +14,50 @@ PLUGIN_TRANSLATIONS = {
     "pt_BR": {
         "plugin_name": "USM - Editor de Legendas",
         "plugin_description": "Extrai e reinsere legendas de arquivos USM/SFD (CRI Middleware)",
-        "extract_subtitles": "Extrair Legendas (USM → TXT)",
-        "reinsert_subtitles": "Reinserir Legendas (TXT → USM)",
+        "extract_subtitles": "Extrair Legendas",
+        "reinsert_subtitles": "Reinserir Legendas",
         "select_usm_file": "Selecione o arquivo .sfd/.usm",
         "select_txt_file": "Selecione o arquivo de legendas .txt",
-        "log_import_success": "Importadas {count} entradas de {file}.",
-        "log_export_success": "Reconstrução concluída: {file} (Δ {delta} bytes).",
+        "log_import_success": "Importadas {count} entradas de {file}. (contexto mantido em memória)",
+        "log_export_success": "Reconstrução concluída. Arquivo salvo como: {file} (Δ {delta} bytes).",
         "log_no_sbt": "Nenhum bloco @SBT encontrado em {file}.",
         "err_context": "Erro: Contexto não encontrado. Importe o arquivo original primeiro.",
         "err_mismatch": "Erro: O número de linhas ({provided}) não condiz com o original ({expected}).",
         "err_unexpected": "Erro inesperado: {error}",
         "processing": "Processando: {name}...",
+        "cancelled": "Seleção cancelada."
     },
     "en_US": {
         "plugin_name": "USM - Subtitle Editor",
-        "plugin_description": "Extracts and reinserts subtitles from USM/SFD files",
-        "extract_subtitles": "Extract Subtitles (USM → TXT)",
-        "reinsert_subtitles": "Reinsert Subtitles (TXT → USM)",
+        "plugin_description": "Extracts and reinserts subtitles from USM/SFD files (CRI Middleware)",
+        "extract_subtitles": "Extract Subtitles",
+        "reinsert_subtitles": "Reinsert Subtitles",
         "select_usm_file": "Select .sfd/.usm file",
         "select_txt_file": "Select subtitle .txt file",
-        "log_import_success": "Imported {count} entries from {file}.",
+        "log_import_success": "Imported {count} entries from {file}. (context kept in memory)",
         "log_export_success": "Reconstruction done: {file} (Δ {delta} bytes).",
         "log_no_sbt": "No @SBT blocks found in {file}.",
         "err_context": "Error: Context not found. Import the original file first.",
         "err_mismatch": "Error: Line count mismatch ({provided}/{expected}).",
         "err_unexpected": "Unexpected error: {error}",
         "processing": "Processing: {name}...",
+        "cancelled": "Selection cancelled."
+    },
+    "es_ES": {
+        "plugin_name": "USM - Editor de Subtítulos",
+        "plugin_description": "Extrae y reinserta subtítulos de archivos USM/SFD (CRI Middleware)",
+        "extract_subtitles": "Extraer Subtítulos",
+        "reinsert_subtitles": "Reinsertar Subtítulos",
+        "select_usm_file": "Seleccionar archivo .sfd/.usm",
+        "select_txt_file": "Seleccionar archivo de subtítulos .txt",
+        "log_import_success": "Importadas {count} entradas de {file}. (contexto mantenido en memoria)",
+        "log_export_success": "Reconstrucción completada: {file} (Δ {delta} bytes).",
+        "log_no_sbt": "No se encontraron bloques @SBT en {file}.",
+        "err_context": "Error: Contexto no encontrado. Importe el archivo original primero.",
+        "err_mismatch": "Error: El número de líneas ({provided}) no coincide con el original ({expected}).",
+        "err_unexpected": "Error inesperado: {error}",
+        "processing": "Procesando: {name}...",
+        "cancelled": "Selección cancelada."
     }
 }
 
@@ -58,7 +76,7 @@ def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
 
 # ==============================================================================
-# UTILITÁRIOS DE TEMPO
+# UTILITÁRIOS DE TEMPO (mantidos do original)
 # ==============================================================================
 
 def format_time_ms(ms: int) -> str:
@@ -78,7 +96,7 @@ def parse_time_ms(time_str: str) -> int:
     except: return 0
 
 # ==============================================================================
-# LÓGICA CORE (EXTRAÇÃO E REINSERÇÃO)
+# LÓGICA CORE (EXTRAÇÃO E REINSERÇÃO) – IDÊNTICA AO ORIGINAL
 # ==============================================================================
 
 def run_extraction(usm_path: str):
@@ -240,7 +258,7 @@ def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
             {
                 "label": t("extract_subtitles"), 
                 "action": lambda: fp_extract.pick_files(
-                    allowed_extensions=["usm", "sfd"],
+                    allowed_extensions=["sfd", "usm"],
                     dialog_title=t("select_usm_file")
                 )
             },
