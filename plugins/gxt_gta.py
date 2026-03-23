@@ -165,15 +165,13 @@ def register_plugin(log_func, option_getter, host_language="pt_BR"):
             {
                 "label": t("extract_file"), 
                 "action": lambda: fp_extract.pick_files(
-                    allow_multiple=True, 
-                    allowed_extensions=["gxt"]
+                allowed_extensions=["gxt"]
                 )
             },
             {
                 "label": t("rebuild_file"), 
                 "action": lambda: fp_rebuild.pick_files(
-                    allow_multiple=True, 
-                    allowed_extensions=["txt"]
+                allowed_extensions=["txt"]
                 )
             },
         ]

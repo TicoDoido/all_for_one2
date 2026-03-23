@@ -105,12 +105,12 @@ def t(key, **kwargs):
 
 fp_extract = ft.FilePicker(
     on_result=lambda e: _process_extract([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
-    allow_multiple=True
+
 )
 
 fp_rebuild = ft.FilePicker(
     on_result=lambda e: _process_rebuild([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
-    allow_multiple=True
+
 )
 
 # ==============================================================================
@@ -503,14 +503,12 @@ def action_extract():
     fp_extract.pick_files(
         allowed_extensions=["msg"],
         dialog_title=t("select_msg_file"),
-        allow_multiple=True
     )
 
 def action_rebuild():
     fp_rebuild.pick_files(
         allowed_extensions=["txt"],
         dialog_title=t("select_txt_file"),
-        allow_multiple=True
     )
 
 # ==============================================================================

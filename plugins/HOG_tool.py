@@ -235,15 +235,13 @@ def register_plugin(log_func, option_getter, host_language="pt_BR"):
             {
                 "label": t("extract_file"), 
                 "action": lambda: fp_extract.pick_files(
-                    allow_multiple=True, 
-                    allowed_extensions=["hog"]
+                 allowed_extensions=["hog"]
                 )
             },
             {
                 "label": t("rebuild_file"), 
                 "action": lambda: fp_rebuild.pick_files(
-                    allow_multiple=True, 
-                    allowed_extensions=["hog"]
+                allowed_extensions=["hog"]
                 )
             },
         ]

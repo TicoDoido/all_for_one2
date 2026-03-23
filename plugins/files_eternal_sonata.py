@@ -245,7 +245,7 @@ fp_reimport = ft.FilePicker(
 )
 fp_ntx_extract = ft.FilePicker(
     on_result=lambda e: _extract_ntx([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
-    allow_multiple=True
+
 )
 fp_ntx_import = ft.FilePicker(
     on_result=lambda e: _import_dds(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
@@ -879,7 +879,6 @@ def action_extract_ntx():
     fp_ntx_extract.pick_files(
         allowed_extensions=["tex", "p3tex"],
         dialog_title=t("select_ntx_files"),
-        allow_multiple=True
     )
 
 def action_import_dds():

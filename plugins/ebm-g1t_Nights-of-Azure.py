@@ -861,42 +861,42 @@ def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
                 "label": t("extract_file"),
                 "action": lambda: fp_extract_ebm.pick_files(
                     allowed_extensions=["ebm", "bsb"],
-                    allow_multiple=True
+                
                 )
             },
             {
                 "label": t("import_file"),
                 "action": lambda: fp_import_ebm.pick_files(
                     allowed_extensions=["ebm", "bsb"],
-                    allow_multiple=True
+                
                 )
             },
             {
                 "label": "G1T → DDS",
                 "action": lambda: fp_export_g1t.pick_files(
                     allowed_extensions=["g1t", "g1tg"],
-                    allow_multiple=True
+                
                 )
             },
             {
                 "label": "DDS → G1T",
                 "action": lambda: fp_import_g1t.pick_files(
                     allowed_extensions=["g1t", "g1tg"],
-                    allow_multiple=True
+                
                 )
             },
             {
                 "label": "extract elixir",
                 "action": lambda: fp_export_elixir.pick_files(
                     allowed_extensions=["elixir"],
-                    allow_multiple=True
+                
                 )
             },
             {
                 "label": "import elixir",
                 "action": lambda: fp_import_elixir.pick_files(
                     allowed_extensions=["elixir"],
-                    allow_multiple=True
+                
                 )
             },
         ]

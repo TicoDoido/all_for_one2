@@ -126,22 +126,22 @@ def t(key, **kwargs):
 
 fp_extract_ebm = ft.FilePicker(
     on_result=lambda e: _extract_text([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
-    allow_multiple=True
+
 )
 
 fp_import_txt = ft.FilePicker(
     on_result=lambda e: _import_text([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
-    allow_multiple=True
+
 )
 
 fp_extract_gz = ft.FilePicker(
     on_result=lambda e: _extract_gz([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
-    allow_multiple=True
+
 )
 
 fp_compress_gz = ft.FilePicker(
     on_result=lambda e: _compress_gz([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
-    allow_multiple=True
+
 )
 
 # ==============================================================================
@@ -443,28 +443,24 @@ def action_extract():
     fp_extract_ebm.pick_files(
         allowed_extensions=["ebm"],
         dialog_title=t("select_ebm_files"),
-        allow_multiple=True
     )
 
 def action_import():
     fp_import_txt.pick_files(
         allowed_extensions=["txt"],
         dialog_title=t("select_txt_files"),
-        allow_multiple=True
     )
 
 def action_extract_gz():
     fp_extract_gz.pick_files(
         allowed_extensions=["gz"],
         dialog_title=t("select_gz_files"),
-        allow_multiple=True
     )
 
 def action_compress_gz():
     fp_compress_gz.pick_files(
         allowed_extensions=["*"],
         dialog_title=t("select_compress_files"),
-        allow_multiple=True
     )
 
 # ==============================================================================

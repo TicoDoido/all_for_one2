@@ -87,7 +87,7 @@ def t(key, **kwargs):
 # ==============================================================================
 fp = ft.FilePicker(
     on_result=lambda e: _process_selected_files([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
-    allow_multiple=True
+
 )
 
 # ==============================================================================
@@ -255,7 +255,7 @@ def action_process():
     fp.pick_files(
         allowed_extensions=["dds"],
         dialog_title=t("select_file"),
-        allow_multiple=True
+    
     )
 
 # ==============================================================================
