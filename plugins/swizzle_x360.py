@@ -99,12 +99,13 @@ fp = ft.FilePicker(
 
 def swap_byte_order_x360(image_data: bytes) -> bytes:
     if len(image_data) % 2 != 0:
-        pass
+        raise Exception("Data size must be a multiple of 2 bytes!")
 
-    swapped = bytearray(image_data)
-    for i in range(0, len(swapped) & ~1, 2):
-        swapped[i], swapped[i+1] = swapped[i+1], swapped[i]
-    return bytes(swapped)
+    swapped_data: bytearray = bytearray()
+    for i in range(0, len(image_data), 2):
+        group = image_data[i: i + 2]
+        swapped_data.extend(group[::-1])
+    return swapped_data
 
 def _xg_address_2d_tiled_x(block_offset: int, width_in_blocks: int, texel_byte_pitch: int) -> int:
     aligned_width: int = (width_in_blocks + 31) & ~31
@@ -147,7 +148,7 @@ def _convert_x360_image_data(image_data: bytes, image_width: int, image_height: 
     if not swizzle_flag:
         converted_data: bytearray = bytearray(width_in_blocks * height_in_blocks * texel_byte_pitch)
     else:
-        converted_data: bytearray = bytearray(total_padded_blocks * texel_byte_pitch)
+        converted_data: bytearray = bytearray(total_padded_blocks * texel_byte_pitch)  # type: ignore
 
     for block_offset in range(total_padded_blocks):
         x = _xg_address_2d_tiled_x(block_offset, padded_width_in_blocks, texel_byte_pitch)
@@ -180,9 +181,55 @@ def swizzle_x360(image_data: bytes, img_width: int, img_height: int, block_pixel
     return swizzled_data
 
 # ==============================================================================
-# FUNÇÃO PRINCIPAL (ADAPTADA PARA RECEBER PATH)
+# FUNÇÃO DE PROCESSAMENTO EM MEMÓRIA
 # ==============================================================================
+def process_data(hdr: bytes, data: bytes, mode: str, fmt: str) -> bytes:
+    """
+    Processa os dados em memória e retorna os bytes finais (header + dados processados).
+    """
+    # Define o block_size e o pitch (bytes) corretamente para cada formato
+    if fmt == "DXT1":
+        blk_px, pitch = 4, 8
+    elif fmt in ["DXT3", "DXT5"]:
+        blk_px, pitch = 4, 16
+    elif fmt == "RGBA8888":
+        blk_px, pitch = 1, 4  # AQUI ESTAVA O ERRO! Bloco de 1 pixel, 4 bytes.
+    else:
+        raise ValueError(t("unsupported_format", fmt=fmt))
 
+    # Extrai dimensões do header
+    width = int.from_bytes(hdr[16:20], 'little')
+    height = int.from_bytes(hdr[12:16], 'little')
+
+    logger(t("processing", name="data in memory", width=width, height=height), color=COLOR_LOG_YELLOW)
+
+    # Passa o blk_px (block_pixel_size) e pitch corrigidos
+    if mode == t("swizzle"):
+        new_data = swizzle_x360(data, width, height, blk_px, pitch)
+    else:
+        new_data = unswizzle_x360(data, width, height, blk_px, pitch)
+
+    return hdr + new_data
+
+
+# ==============================================================================
+# FUNÇÃO AUXILIAR PARA LER ARQUIVO
+# ==============================================================================
+def read_dds_file(filepath: Path, fmt: str):
+    """Retorna (cabeçalho, dados) do arquivo DDS."""
+    # Para Xbox 360 o header é sempre 128 bytes, independente do formato
+    header_size = 128
+
+    with open(filepath, "rb") as f:
+        hdr = f.read(header_size)
+        data = f.read()
+
+    return hdr, data
+
+
+# ==============================================================================
+# FUNÇÃO PRINCIPAL (AGORA MUITO MAIS LIMPA)
+# ==============================================================================
 def _process_file(file_path: Path):
     """Processa o arquivo DDS com base nas opções selecionadas."""
     mode = get_option("var_mode")
@@ -191,32 +238,15 @@ def _process_file(file_path: Path):
     logger(t("processing_file", name=file_path.name), color=COLOR_LOG_YELLOW)
 
     try:
-        with open(file_path, "rb") as f:
-            hdr = f.read(128)
-            w = int.from_bytes(hdr[16:20], 'little')
-            h = int.from_bytes(hdr[12:16], 'little')
-            data = f.read()
+        # Lê o arquivo em memória
+        hdr, data = read_dds_file(file_path, fmt)
 
-        logger(t("processing", name=file_path.name, width=w, height=h), color=COLOR_LOG_YELLOW)
+        # Processa tudo em memória
+        final_data = process_data(hdr, data, mode, fmt)
 
-        format_map = {
-            "DXT1": 8,
-            "DXT3": 16,
-            "DXT5": 16,
-            "RGBA8888": 64
-        }
-
-        pitch = format_map.get(fmt)
-        if pitch is None:
-            raise ValueError(t("unsupported_format", fmt=fmt))
-
-        if mode == t("swizzle"):
-            new_data = swizzle_x360(data, w, h, 4, pitch)
-        else:
-            new_data = unswizzle_x360(data, w, h, 4, pitch)
-
+        # Escreve de volta uma única vez
         with open(file_path, "wb") as f:
-            f.write(hdr + new_data)
+            f.write(final_data)
 
         logger(t("success_message", path=str(file_path)), color=COLOR_LOG_GREEN)
 

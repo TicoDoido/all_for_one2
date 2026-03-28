@@ -2,6 +2,7 @@ import os
 import struct
 from pathlib import Path
 import flet as ft
+from swizzle_x360 import swizzle_x360,unswizzle_x360
 
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
@@ -14,10 +15,13 @@ PLUGIN_TRANSLATIONS = {
         "plugin_description": "Converte arquivos .msg(MSG1) para texto e vice-versa",
         "extract_text": "Converter MSG para TXT",
         "rebuild_text": "Converter TXT para MSG",
+        "extract_tex": "Converter TEX para DDS",
         "select_msg_file": "Selecione arquivo .MSG",
         "select_txt_file": "Selecione arquivo .TXT",
+        "select_tex_file": "Selecione arquivo .TEX",
         "msg_files": "Arquivos MSG",
         "txt_files": "Arquivos TXT",
+        "tex_files": "Arquivos TEX",
         "all_files": "Todos os arquivos",
         "success": "Sucesso",
         "extraction_success": "Arquivo convertido: {path}",
@@ -31,7 +35,9 @@ PLUGIN_TRANSLATIONS = {
         "cancelled": "Seleção cancelada.",
         "processing": "Processando: {name}...",
         "operation_completed": "Operação concluída.",
-        "unmapped_char": "Caractere sem mapeamento em {file}: {char} (ignorado)"
+        "unmapped_char": "Caractere sem mapeamento em {file}: {char} (ignorado)",
+        "unhandled_format": "Formato de pixel não suportado: {pf}",
+        "size_mismatch": "Tamanho de dados incorreto. Obtido: {got} | Esperado: {exp}",
     },
     "en_US": {
         "plugin_name": "MSG1 Lost Planet (PS3), Dead Rising (Xbox360)",
@@ -39,10 +45,13 @@ PLUGIN_TRANSLATIONS = {
         "plugin_description": "Converts .msg(MSG1) files to text and vice versa",
         "extract_text": "Convert MSG to TXT",
         "rebuild_text": "Convert TXT to MSG",
+        "extract_tex": "Convert TEX to DDS",
         "select_msg_file": "Select .MSG file",
         "select_txt_file": "Select .TXT file",
+        "select_tex_file": "Select .TEX file",
         "msg_files": "MSG Files",
         "txt_files": "TXT Files",
+        "tex_files": "TEX Files",
         "all_files": "All Files",
         "success": "Success",
         "extraction_success": "File converted: {path}",
@@ -56,7 +65,9 @@ PLUGIN_TRANSLATIONS = {
         "cancelled": "Selection cancelled.",
         "processing": "Processing: {name}...",
         "operation_completed": "Operation completed.",
-        "unmapped_char": "Unmapped character in {file}: {char} (ignored)"
+        "unmapped_char": "Unmapped character in {file}: {char} (ignored)",
+        "unhandled_format": "Unsupported pixel format: {pf}",
+        "size_mismatch": "Data size mismatch. Got: {got} | Expected: {exp}",
     },
     "es_ES": {
         "plugin_name": "MSG1 Lost Planet (PS3), Dead Rising (Xbox360)",
@@ -64,10 +75,13 @@ PLUGIN_TRANSLATIONS = {
         "plugin_description": "Convierte archivos .msg(MSG1) a texto y viceversa",
         "extract_text": "Convertir MSG a TXT",
         "rebuild_text": "Convertir TXT a MSG",
+        "extract_tex": "Convertir TEX a DDS",
         "select_msg_file": "Seleccionar archivo .MSG",
         "select_txt_file": "Seleccionar archivo .TXT",
+        "select_tex_file": "Seleccionar archivo .TEX",
         "msg_files": "Archivos MSG",
         "txt_files": "Archivos TXT",
+        "tex_files": "Archivos TEX",
         "all_files": "Todos los archivos",
         "success": "Éxito",
         "extraction_success": "Archivo convertido: {path}",
@@ -81,7 +95,9 @@ PLUGIN_TRANSLATIONS = {
         "cancelled": "Selección cancelada.",
         "processing": "Procesando: {name}...",
         "operation_completed": "Operación completada.",
-        "unmapped_char": "Carácter sin mapeo en {file}: {char} (ignorado)"
+        "unmapped_char": "Carácter sin mapeo en {file}: {char} (ignorado)",
+        "unhandled_format": "Formato de píxel no soportado: {pf}",
+        "size_mismatch": "Tamaño de datos incorrecto. Obtenido: {got} | Esperado: {exp}",
     }
 }
 
@@ -98,20 +114,6 @@ host_page = None
 
 def t(key, **kwargs):
     return PLUGIN_TRANSLATIONS.get(current_lang, PLUGIN_TRANSLATIONS["pt_BR"]).get(key, key).format(**kwargs)
-
-# ==============================================================================
-# FilePickers globais (múltipla seleção)
-# ==============================================================================
-
-fp_extract = ft.FilePicker(
-    on_result=lambda e: _process_extract([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
-
-)
-
-fp_rebuild = ft.FilePicker(
-    on_result=lambda e: _process_rebuild([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW),
-
-)
 
 # ==============================================================================
 # TABELAS DE CONVERSÃO (mantidas intactas)
@@ -360,6 +362,141 @@ LOST_PLANET_TABLE = {
     b'\x00\xFA\x00\xA4\x7E\x02': 'ú'.encode('utf-8'),  # ú
 }
 
+LOST_PLANET_TABLE_X360 = {
+    b'\x00\x01\x00\x00\x00\x04': b'[FIM]\n',
+    b'\x00\x03\x00\x00\x00\x04': b'\n',
+    b'\x00\x20\x00\x0E\x40\x02': ' '.encode('utf-8'),  # espaço
+    b'\x00\x21\x00\x0A\x40\x02': '!'.encode('utf-8'),  # !
+    b'\x00\x22\x00\x14\x50\x02': '"'.encode('utf-8'),  # "
+    b'\x00\x23\x00\x57\x7E\x02': '#'.encode('utf-8'),  # #
+    b'\x00\x24\x00\x1B\x7E\x02': '$'.encode('utf-8'),  # $
+    b'\x00\x25\x00\x7F\xCA\x02': '%'.encode('utf-8'),  # %
+    b'\x00\x26\x00\x0F\x98\x02': '&'.encode('utf-8'),  # &
+    b'\x00\x27\x00\x15\x31\x02': "'".encode('utf-8'),  # '
+    b'\x00\x28\x00\x0C\x4C\x02': '('.encode('utf-8'),  # (
+    b'\x00\x29\x00\x0D\x4C\x02': ')'.encode('utf-8'),  # )
+    b'\x00\x2A\x00\x54\x58\x02': '*'.encode('utf-8'),  # *
+    b'\x00\x2B\x00\x18\x85\x02': '+'.encode('utf-8'),  # +
+    b'\x00\x2C\x00\x12\x40\x02': ','.encode('utf-8'),  # ,
+    b'\x00\x2D\x00\x17\x4C\x02': '-'.encode('utf-8'),  # -
+    b'\x00\x2E\x00\x13\x40\x02': '.'.encode('utf-8'),  # .
+    b'\x00\x2F\x00\x19\x40\x02': '/'.encode('utf-8'),  # /
+    b'\x00\x30\x00\x00\x7E\x02': '0'.encode('utf-8'),  # 0
+    b'\x00\x31\x00\x01\x7E\x02': '1'.encode('utf-8'),  # 1
+    b'\x00\x32\x00\x02\x7E\x02': '2'.encode('utf-8'),  # 2
+    b'\x00\x33\x00\x03\x7E\x02': '3'.encode('utf-8'),  # 3
+    b'\x00\x34\x00\x04\x7E\x02': '4'.encode('utf-8'),  # 4
+    b'\x00\x35\x00\x05\x7E\x02': '5'.encode('utf-8'),  # 5
+    b'\x00\x36\x00\x06\x7E\x02': '6'.encode('utf-8'),  # 6
+    b'\x00\x37\x00\x07\x7E\x02': '7'.encode('utf-8'),  # 7
+    b'\x00\x38\x00\x08\x7E\x02': '8'.encode('utf-8'),  # 8
+    b'\x00\x39\x00\x09\x7E\x02': '9'.encode('utf-8'),  # 9
+    b'\x00\x3A\x00\x10\x40\x02': ':'.encode('utf-8'),  # :
+    b'\x00\x3B\x00\x11\x40\x02': ';'.encode('utf-8'),  # ;
+    b'\x00\x3D\x00\x78\x85\x02': '='.encode('utf-8'),  # =
+    b'\x00\x3F\x00\x0B\x7E\x02': '?'.encode('utf-8'),  # ?
+    b'\x00\x40\x00\x1A\xE9\x02': '@'.encode('utf-8'),  # @
+    b'\x00\x41\x00\x1C\x98\x02': 'A'.encode('utf-8'),  # A
+    b'\x00\x42\x00\x1D\x98\x02': 'B'.encode('utf-8'),  # B
+    b'\x00\x43\x00\x1E\xA4\x02': 'C'.encode('utf-8'),  # C
+    b'\x00\x44\x00\x1F\xA4\x02': 'D'.encode('utf-8'),  # D
+    b'\x00\x45\x00\x20\x98\x02': 'E'.encode('utf-8'),  # E
+    b'\x00\x46\x00\x21\x8C\x02': 'F'.encode('utf-8'),  # F
+    b'\x00\x47\x00\x22\xB2\x02': 'G'.encode('utf-8'),  # G
+    b'\x00\x48\x00\x23\xA4\x02': 'H'.encode('utf-8'),  # H
+    b'\x00\x49\x00\x24\x40\x02': 'I'.encode('utf-8'),  # I
+    b'\x00\x4A\x00\x25\x72\x02': 'J'.encode('utf-8'),  # J
+    b'\x00\x4B\x00\x26\x98\x02': 'K'.encode('utf-8'),  # K
+    b'\x00\x4C\x00\x27\x7E\x02': 'L'.encode('utf-8'),  # L
+    b'\x00\x4D\x00\x28\xBE\x02': 'M'.encode('utf-8'),  # M
+    b'\x00\x4E\x00\x29\xA4\x02': 'N'.encode('utf-8'),  # N
+    b'\x00\x4F\x00\x2A\xB2\x02': 'O'.encode('utf-8'),  # O
+    b'\x00\x50\x00\x2B\x98\x02': 'P'.encode('utf-8'),  # P
+    b'\x00\x51\x00\x2C\xB2\x02': 'Q'.encode('utf-8'),  # Q
+    b'\x00\x52\x00\x2D\xA4\x02': 'R'.encode('utf-8'),  # R
+    b'\x00\x53\x00\x2E\x98\x02': 'S'.encode('utf-8'),  # S
+    b'\x00\x54\x00\x2F\x8C\x02': 'T'.encode('utf-8'),  # T
+    b'\x00\x55\x00\x30\xA4\x02': 'U'.encode('utf-8'),  # U
+    b'\x00\x56\x00\x31\x98\x02': 'V'.encode('utf-8'),  # V
+    b'\x00\x57\x00\x32\xD8\x02': 'W'.encode('utf-8'),  # W
+    b'\x00\x58\x00\x33\x98\x02': 'X'.encode('utf-8'),  # X
+    b'\x00\x59\x00\x34\x98\x02': 'Y'.encode('utf-8'),  # Y
+    b'\x00\x5A\x00\x35\x8C\x02': 'Z'.encode('utf-8'),  # Z
+    b'\x00\x5B\x00\x50\x40\x02': '<'.encode('utf-8'),  # [
+    b'\x00\x5C\x00\x55\x40\x02': '\\'.encode('utf-8'),  # \
+    b'\x00\x5D\x00\x51\x40\x02': '>'.encode('utf-8'),  # ]
+    b'\x00\x5E\x00\x56\x6B\x02': '^'.encode('utf-8'),  # ^
+    b'\x00\x5F\x00\x7A\x7E\x02': '_'.encode('utf-8'),  # _
+    b'\x00\x60\x00\x58\x4C\x02': '`'.encode('utf-8'),  # `
+    b'\x00\x61\x00\x36\x7E\x02': 'a'.encode('utf-8'),  # a
+    b'\x00\x62\x00\x37\x7E\x02': 'b'.encode('utf-8'),  # b
+    b'\x00\x63\x00\x38\x72\x02': 'c'.encode('utf-8'),  # c
+    b'\x00\x64\x00\x39\x7E\x02': 'd'.encode('utf-8'),  # d
+    b'\x00\x65\x00\x3A\x7E\x02': 'e'.encode('utf-8'),  # e
+    b'\x00\x66\x00\x3B\x40\x02': 'f'.encode('utf-8'),  # f
+    b'\x00\x67\x00\x3C\x7E\x02': 'g'.encode('utf-8'),  # g
+    b'\x00\x68\x00\x3D\x7E\x02': 'h'.encode('utf-8'),  # h
+    b'\x00\x69\x00\x3E\x31\x02': 'i'.encode('utf-8'),  # i
+    b'\x00\x6A\x00\x3F\x31\x02': 'j'.encode('utf-8'),  # j
+    b'\x00\x6B\x00\x40\x72\x02': 'k'.encode('utf-8'),  # k
+    b'\x00\x6C\x00\x41\x31\x02': 'l'.encode('utf-8'),  # l
+    b'\x00\x6D\x00\x42\xBE\x02': 'm'.encode('utf-8'),  # m
+    b'\x00\x6E\x00\x43\x7E\x02': 'n'.encode('utf-8'),  # n
+    b'\x00\x6F\x00\x44\x7E\x02': 'o'.encode('utf-8'),  # o
+    b'\x00\x70\x00\x45\x7E\x02': 'p'.encode('utf-8'),  # p
+    b'\x00\x71\x00\x46\x7E\x02': 'q'.encode('utf-8'),  # q
+    b'\x00\x72\x00\x47\x4C\x02': 'r'.encode('utf-8'),  # r
+    b'\x00\x73\x00\x48\x72\x02': 's'.encode('utf-8'),  # s
+    b'\x00\x74\x00\x49\x40\x02': 't'.encode('utf-8'),  # t
+    b'\x00\x75\x00\x4A\x7E\x02': 'u'.encode('utf-8'),  # u
+    b'\x00\x76\x00\x4B\x72\x02': 'v'.encode('utf-8'),  # v
+    b'\x00\x77\x00\x4C\xA4\x02': 'w'.encode('utf-8'),  # w
+    b'\x00\x78\x00\x4D\x72\x02': 'x'.encode('utf-8'),  # x
+    b'\x00\x79\x00\x4E\x72\x02': 'y'.encode('utf-8'),  # y
+    b'\x00\x7A\x00\x4F\x72\x02': 'z'.encode('utf-8'),  # z
+    b'\x00\x7B\x00\x59\x4C\x02': '{'.encode('utf-8'),  # {
+    b'\x00\x7C\x00\x79\x3B\x02': '|'.encode('utf-8'),  # |
+    b'\x00\x7D\x00\x5A\x4C\x02': '}'.encode('utf-8'),  # }
+    b'\x00\x7E\x00\x16\x85\x02': '~'.encode('utf-8'),  # ~
+    b'\x20\x1C\x00\xBB\x4C\x02': '<'.encode('utf-8'),  # <
+    b'\x20\x1D\x00\xBC\x4C\x02': '>'.encode('utf-8'),  # >
+    b'\x21\x92\x00\xB7\x85\x00': '‚'.encode('utf-8'),  # ‚
+    b'\x21\x93\x00\xB3\x85\x00': '“'.encode('utf-8'),  # “
+    b'\x00\xA1\x00\xA8\x4C\x02': '¡'.encode('utf-8'),  # ¡
+    b'\x00\xA5\x7E\x02\x73\x20': '¥'.encode('utf-8'),  # ¥
+    b'\x00\xBA\x00\x9F\x53\x02': 'ª'.encode('utf-8'),  # ª
+    b'\x00\xB0\x00\xB8\x5C\x02': '°'.encode('utf-8'),  # °
+    b'\x00\xBF\x00\xA3\x8C\x02': '¿'.encode('utf-8'),  # ¿
+    b'\x00\xC0\x00\x94\x98\x02': 'À'.encode('utf-8'),  # À
+    b'\x00\xC1\x00\xA6\x98\x02': 'Á'.encode('utf-8'),  # Á
+    b'\x00\xC4\x00\x83\x98\x02': 'Ä'.encode('utf-8'),  # Ä
+    b'\x00\xC7\x00\x99\xA4\x02': 'Ç'.encode('utf-8'),  # Ç
+    b'\x00\xC9\x00\x95\x98\x02': 'É'.encode('utf-8'),  # É
+    b'\x00\xCA\x00\x90\x98\x02': 'Ê'.encode('utf-8'),  # Ê
+    b'\x00\xCD\x00\xA7\x40\x02': 'Í'.encode('utf-8'),  # Í
+    b'\x00\xDC\x00\x85\xA4\x02': 'Ü'.encode('utf-8'),  # Ü
+    b'\x00\xE0\x00\x8E\x7E\x02': 'à'.encode('utf-8'),  # à
+    b'\x00\xE1\x00\xA2\x7E\x02': 'á'.encode('utf-8'),  # á
+    b'\x00\xE2\x00\x93\x7E\x02': 'â'.encode('utf-8'),  # â
+    b'\x00\xE4\x00\x81\x7E\x02': 'ä'.encode('utf-8'),  # ä
+    b'\x00\xE7\x00\x98\x72\x02': 'ç'.encode('utf-8'),  # ç
+    b'\x00\xE8\x00\x8D\x7E\x02': 'è'.encode('utf-8'),  # è
+    b'\x00\xE9\x00\x8B\x7E\x02': 'é'.encode('utf-8'),  # é
+    b'\x00\xEA\x00\x8F\x7E\x02': 'ê'.encode('utf-8'),  # ê
+    b'\x00\xED\x00\xA0\x40\x02': 'í'.encode('utf-8'),  # í
+    b'\x00\xEE\x00\x96\x40\x02': 'î'.encode('utf-8'),  # î
+    b'\x00\xF1\x00\xA5\x7E\x02': 'ñ'.encode('utf-8'),  # ñ
+    b'\x00\xF3\x00\x9E\x7E\x02': 'ò'.encode('utf-8'),  # ò
+    b'\x00\xF3\x00\xA4\x7E\x02': 'ó'.encode('utf-8'),  # ó
+    b'\x00\xF4\x00\x92\x7E\x02': 'ô'.encode('utf-8'),  # ô
+    b'\x00\xF6\x00\x84\x7E\x02': 'ö'.encode('utf-8'),  # ö
+    b'\x00\xF9\x00\x9A\x7E\x02': 'ù'.encode('utf-8'),  # ù
+    b'\x00\xFA\x00\xA1\x7E\x02': 'ú'.encode('utf-8'),  # ú
+    b'\x00\xFB\x00\x9B\x7E\x02': 'û'.encode('utf-8'),  # û
+    b'\x00\xFC\x00\x82\x7E\x02': 'ü'.encode('utf-8'),  # ü
+    b'\x01\x52\x00\xBA\xE4\x02': 'œ'.encode('utf-8'),  # œ
+}
+
 # ==============================================================================
 # FUNÇÕES PRINCIPAIS (ADAPTADAS PARA RECEBER PATH)
 # ==============================================================================
@@ -367,8 +504,14 @@ LOST_PLANET_TABLE = {
 def _convert_msg_to_text(msg_path: Path, txt_path: Path):
     """Convert MSG file to TXT using appropriate game table"""
     game = get_option("tabela_jogo") or "Lost Planet EC(PS3)"
-    table = LOST_PLANET_TABLE if game == "Lost Planet EC(PS3)" else DEAD_RISING_TABLE
-    endian = '>' if game == "Lost Planet EC(PS3)" else '<'
+    if game == "Lost Planet EC(PS3)":
+        table = LOST_PLANET_TABLE
+    elif game == "Lost Planet EC(X360)":
+        table = LOST_PLANET_TABLE_X360
+    else:
+        table = DEAD_RISING_TABLE
+        
+    endian = '>' if game in ["Lost Planet EC(PS3)", "Lost Planet EC(X360)"] else '<'
 
     logger(t("processing_file", file=msg_path.name), color=COLOR_LOG_YELLOW)
 
@@ -400,8 +543,14 @@ def _convert_msg_to_text(msg_path: Path, txt_path: Path):
 def _convert_text_to_msg(txt_path: Path, msg_path: Path):
     """Convert TXT file back to MSG using appropriate game table"""
     game = get_option("tabela_jogo") or "Lost Planet EC(PS3)"
-    table = LOST_PLANET_TABLE if game == "Lost Planet EC(PS3)" else DEAD_RISING_TABLE
-    endian = '>' if game == "Lost Planet EC(PS3)" else '<'
+    if game == "Lost Planet EC(PS3)":
+        table = LOST_PLANET_TABLE
+    elif game == "Lost Planet EC(X360)":
+        table = LOST_PLANET_TABLE_X360
+    else:
+        table = DEAD_RISING_TABLE
+        
+    endian = '>' if game in ["Lost Planet EC(PS3)", "Lost Planet EC(X360)"] else '<'
 
     logger(t("processing_file", file=txt_path.name), color=COLOR_LOG_YELLOW)
 
@@ -460,6 +609,194 @@ def _convert_text_to_msg(txt_path: Path, msg_path: Path):
 
     return True
 
+def _convert_tex_to_dds(tex_path: Path, dds_path: Path):
+
+    try:
+        with open(tex_path, "rb") as tex_file:
+            file_data = tex_file.read()
+
+        pos = 0
+
+        # Magic + endian
+        magic = file_data[pos:pos + 4]
+        pos += 4
+        if magic == b'\x00XET':
+            endian_str = '>'
+        elif magic == b'TEX\x00':
+            endian_str = '<'
+        else:
+            if logger:
+                logger(t("invalid_magic"), color="#EF4444")
+            return None
+
+        # Unpack correto (versão, pixel_format, width, height)
+        version = struct.unpack(endian_str + 'H', file_data[pos:pos + 2])[0]
+        pos += 8                               # campos desconhecidos
+        width = struct.unpack(endian_str + 'H', file_data[pos:pos + 2])[0]
+        pos += 2
+        height = struct.unpack(endian_str + 'H', file_data[pos:pos + 2])[0]
+        pos += 2
+        
+        pos += 7
+        pixel_format = file_data[pos]          # 1 byte
+
+        pos += 21                             # mais campos desconhecidos
+
+        # Configurações de formato
+        is_compressed = False
+        block_size = 0
+        bpp = 0
+        dds_fourcc = b'\0\0\0\0'
+        use_dx10 = False
+        dx10_dxgi = 0
+
+        if pixel_format == 134:
+            is_compressed = False
+            block_size = 0
+            bpp = 32
+            dds_fourcc = b'\0\0\0\0'
+            pitch = 64
+        elif pixel_format in [82, 82]:
+            is_compressed = True
+            block_size = 8
+            bpp = 4
+            dds_fourcc = b'DXT1'
+            pitch = 8
+        elif pixel_format == 84:
+            is_compressed = True
+            block_size = 16
+            bpp = 8
+            dds_fourcc = b'DXT5'
+            pitch = 16
+        else:
+            if logger:
+                logger(t("unhandled_format", pf=pixel_format), color="#FACC15")
+            return None
+
+        # Calcula tamanho dos dados da imagem
+        if is_compressed:
+            num_blocks_w = max(1, (width + 3) // 4)
+            num_blocks_h = max(1, (height + 3) // 4)
+            data_size = num_blocks_w * num_blocks_h * block_size
+        else:
+            data_size = width * height * (bpp // 8)
+
+        img_data = file_data[pos:]
+        logger(f"OFFSET: {pos} tamanho: {len(img_data)}")
+
+        if len(img_data) != data_size:
+            if logger:
+                logger(t("size_mismatch", got=len(img_data), exp=data_size), color="#FACC15")
+            # Continua mesmo assim (como no código original)
+
+        # === MONTA HEADER DDS ===
+        dds = b'DDS '
+
+        hdr_size = 124
+        if is_compressed:
+            hdr_flags = 0x1 | 0x2 | 0x4 | 0x1000 | 0x80000   # DDSD_CAPS | HEIGHT | WIDTH | PIXELFORMAT | LINEARSIZE
+            pitch_or_linear_size = data_size                 # tamanho total dos dados comprimidos
+        else:
+            hdr_flags = 0x1 | 0x2 | 0x4 | 0x1000 | 0x8       # ... | PITCH
+            pitch_or_linear_size = (width * bpp + 7) // 8
+
+        hdr_height = height
+        hdr_width = width
+        hdr_depth = 0
+        hdr_mipcount = 0
+        reserved1 = [0] * 11
+
+        dds += struct.pack('<I', hdr_size)
+        dds += struct.pack('<I', hdr_flags)
+        dds += struct.pack('<I', hdr_height)
+        dds += struct.pack('<I', hdr_width)
+        dds += struct.pack('<I', pitch_or_linear_size)
+        dds += struct.pack('<I', hdr_depth)
+        dds += struct.pack('<I', hdr_mipcount)
+        for r in reserved1:
+            dds += struct.pack('<I', r)
+
+        # PixelFormat
+        pf_size = 32
+        dds_pf_flags = 0
+        dds_bitcount = 0
+        dds_rmask = dds_gmask = dds_bmask = dds_amask = 0
+
+        if dds_fourcc == b'\0\0\0\0':
+            dds_pf_flags = 0x1 | 0x40                     # DDPF_ALPHAPIXELS | DDPF_RGB
+            dds_bitcount = 32
+            dds_rmask = 0x000000FF
+            dds_gmask = 0x0000FF00
+            dds_bmask = 0x00FF0000
+            dds_amask = 0xFF000000
+        else:
+            dds_pf_flags = 0x4                            # DDPF_FOURCC
+
+        dds += struct.pack('<I', pf_size)
+        dds += struct.pack('<I', dds_pf_flags)
+        dds += dds_fourcc
+        dds += struct.pack('<I', dds_bitcount)
+        dds += struct.pack('<I', dds_rmask)
+        dds += struct.pack('<I', dds_gmask)
+        dds += struct.pack('<I', dds_bmask)
+        dds += struct.pack('<I', dds_amask)
+
+        # Caps
+        caps1 = 0x1000
+        caps2 = caps3 = caps4 = reserved2 = 0
+        dds += struct.pack('<I', caps1)
+        dds += struct.pack('<I', caps2)
+        dds += struct.pack('<I', caps3)
+        dds += struct.pack('<I', caps4)
+        dds += struct.pack('<I', reserved2)
+
+        if use_dx10:
+            dds += struct.pack('<5I', dx10_dxgi, 3, 0, 1, 0)
+
+        # Configura os parâmetros corretos do Swizzle dependendo do formato
+        if is_compressed:
+            blk_px = 4
+            tex_pitch = block_size # 8 para DXT1/3 e 16 para DXT5
+        else:
+            blk_px = 1
+            tex_pitch = bpp // 8   # 4 bytes para RGBA8888
+
+        img_data = unswizzle_x360(img_data, width, height, blk_px, tex_pitch)
+        
+        if pixel_format == 134:
+            img_data = rgba_to_argb(img_data)
+        
+        # Adiciona os dados da imagem
+        dds += img_data
+
+        # Escreve o arquivo .dds
+        with open(dds_path, "wb") as dds_file:
+            dds_file.write(dds)
+
+        return dds_path
+
+    except Exception as e:
+        if logger:
+            logger(t("extraction_error", error=str(e)), color="#EF4444")
+        raise
+
+
+def rgba_to_argb(data: bytes) -> bytes:
+    out = bytearray(len(data))
+    for i in range(0, len(data), 4):
+        r = data[i]
+        a = data[i + 1]
+        g = data[i + 2]
+        b = data[i + 3]
+        
+
+        
+        out[i]     = b
+        out[i + 1] = r
+        out[i + 2] = g
+        out[i + 3] = a
+    return bytes(out)
+
 # ==============================================================================
 # FUNÇÕES DE PROCESSAMENTO EM LOTE
 # ==============================================================================
@@ -475,11 +812,11 @@ def _process_extract(msg_paths):
             logger(t("extraction_error", error=str(e)), color=COLOR_LOG_RED)
     logger(t("operation_completed"), color=COLOR_LOG_GREEN)
 
+
 def _process_rebuild(txt_paths):
     for txt_path in txt_paths:
         logger(t("processing", name=txt_path.name), color=COLOR_LOG_YELLOW)
         try:
-            # Tenta encontrar o .msg correspondente
             msg_path_com_ext = txt_path.with_suffix('.msg')
             msg_path_no_ext = txt_path.with_suffix('')
             if msg_path_com_ext.exists():
@@ -495,8 +832,22 @@ def _process_rebuild(txt_paths):
             logger(t("recreation_error", error=str(e)), color=COLOR_LOG_RED)
     logger(t("operation_completed"), color=COLOR_LOG_GREEN)
 
+
+def _process_extract_tex(tex_paths):
+    for tex_path in tex_paths:
+        logger(t("processing", name=tex_path.name), color=COLOR_LOG_YELLOW)
+        try:
+            dds_path = tex_path.with_suffix('.dds')
+            _convert_tex_to_dds(tex_path, dds_path)
+            logger(t("extraction_success", path=str(dds_path)), color=COLOR_LOG_GREEN)
+        except Exception as e:
+            logger(t("extraction_error", error=str(e)), color=COLOR_LOG_RED)
+
+    logger(t("operation_completed"), color=COLOR_LOG_GREEN)
+
+
 # ==============================================================================
-# AÇÕES DOS COMANDOS (CHAMAM OS FILEPICKERS)
+# AÇÕES DOS COMANDOS
 # ==============================================================================
 
 def action_extract():
@@ -511,6 +862,37 @@ def action_rebuild():
         dialog_title=t("select_txt_file"),
     )
 
+def action_extract_tex():
+    fp_extract_tex.pick_files(
+        allow_multiple=(True),
+        allowed_extensions=["tex"],
+        dialog_title=t("select_tex_file"),
+    )
+
+
+# ==============================================================================
+# FilePickers
+# ==============================================================================
+
+fp_extract = ft.FilePicker(
+    on_result=lambda e: (
+        _process_extract([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"))
+    )
+)
+
+fp_rebuild = ft.FilePicker(
+    on_result=lambda e: (
+        _process_rebuild([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"))
+    )
+)
+
+fp_extract_tex = ft.FilePicker(
+    on_result=lambda e: (
+        _process_extract_tex([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"))
+    )
+)
+
+
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
 # ==============================================================================
@@ -523,7 +905,7 @@ def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
     host_page = page
 
     if host_page:
-        host_page.overlay.extend([fp_extract, fp_rebuild])
+        host_page.overlay.extend([fp_extract, fp_rebuild, fp_extract_tex])
         host_page.update()
 
     return {
@@ -533,11 +915,12 @@ def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
             {
                 "name": "tabela_jogo",
                 "label": t("select_game"),
-                "values": ["Lost Planet EC(PS3)", "Dead Rising (Xbox360)"]
+                "values": ["Lost Planet EC(PS3)", "Lost Planet EC(X360)", "Dead Rising (Xbox360)"]
             }
         ],
         "commands": [
             {"label": t("extract_text"), "action": action_extract},
             {"label": t("rebuild_text"), "action": action_rebuild},
+            {"label": t("extract_tex"), "action": action_extract_tex},
         ]
     }

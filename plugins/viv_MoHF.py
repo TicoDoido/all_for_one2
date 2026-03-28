@@ -105,7 +105,7 @@ fp_rebuild = ft.FilePicker(
 )
 
 # ==============================================================================
-# FUNÇÕES AUXILIARES (mantidas do original)
+# FUNÇÕES AUXILIARES
 # ==============================================================================
 ALIGNMENT = 64
 
@@ -131,7 +131,7 @@ def read_cstring(f):
     return b''.join(pieces)
 
 # ==============================================================================
-# FUNÇÕES PRINCIPAIS (ADAPTADAS PARA PATH)
+# FUNÇÕES PRINCIPAIS
 # ==============================================================================
 def _extract_viv(path: Path):
     """Extrai arquivos do arquivo .viv."""

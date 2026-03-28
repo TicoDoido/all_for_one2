@@ -224,7 +224,7 @@ COLOR_LOG_RED = "#EF4444"
 COLOR_CARD = "#1a2233"
 COLOR_PLACEHOLDER = "#273142"
 BANNER_HEIGHT = 100
-REPO_API_URL = "https://api.github.com/repos/TicoDoido/all_for_one/contents/plugins"
+REPO_API_URL = "https://api.github.com/repos/TicoDoido/all_for_one2/contents/plugins"
 LANG_MAP = {
     "Português (BR)": "pt_BR",
     "English (US)": "en_US",

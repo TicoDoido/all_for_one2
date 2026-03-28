@@ -1,10 +1,3 @@
-"""Build all Cython modules in this folder in-place.
-
-Usage:
-    python plugins/DECOMP_CODE/build_cython.py build_ext --inplace
-or simply:
-    python plugins/DECOMP_CODE/build_cython.py
-"""
 from __future__ import annotations
 
 from pathlib import Path
