@@ -107,10 +107,12 @@ fp_rebuild = ft.FilePicker(
 # ==============================================================================
 # FUNÇÕES AUXILIARES
 # ==============================================================================
-ALIGNMENT = 64
 
 def align64(value):
-    return (value + (ALIGNMENT - 1)) & ~(ALIGNMENT - 1)
+    return (value + (64 - 1)) & ~(64 - 1)
+
+def align2048(value):
+    return (value + (2048 - 1)) & ~(2048 - 1)
 
 def read_u16_be(f):
     return struct.unpack('>H', f.read(2))[0]
@@ -120,6 +122,9 @@ def read_3byte_be_int(f):
 
 def write_3byte_be_int(value):
     return value.to_bytes(3, 'big')
+
+def write_4byte_be_int(value):
+    return value.to_bytes(4, 'big')
 
 def read_cstring(f):
     pieces = []
@@ -138,19 +143,39 @@ def _extract_viv(path: Path):
     logger(t("processing", name=path.name), color=COLOR_LOG_YELLOW)
 
     with open(path, 'rb') as f:
-        magic = f.read(2)
-        if magic != b'\xC0\xFB':
+        header = f.read(4)
+
+        if header.startswith(b'\xC0\xFB'):
+            f.seek(2)
+        elif header == b'BIGF':
+            f.seek(4)
+        else:
             raise ValueError(t("invalid_magic"))
 
-        header_size = read_u16_be(f)
-        total_files = read_u16_be(f)
+        if header.startswith(b'\xC0\xFB'):
+            header_size = read_u16_be(f)
+            total_files = read_u16_be(f)
+        
+        else:
+            f.seek(4, 1)
+            total_files = struct.unpack('>I', f.read(4))[0]
+            header_size = struct.unpack('>I', f.read(4))[0]
 
         entries = []
-        for _ in range(total_files):
-            offset = read_3byte_be_int(f)
-            size = read_3byte_be_int(f)
-            name = read_cstring(f).decode('utf-8', errors='ignore')
-            entries.append({'offset': offset, 'size': size, 'name': name})
+        
+        if header.startswith(b'\xC0\xFB'):
+            for _ in range(total_files):
+                offset = read_3byte_be_int(f)
+                size = read_3byte_be_int(f)
+                name = read_cstring(f).decode('utf-8', errors='ignore')
+                entries.append({'offset': offset, 'size': size, 'name': name})
+        
+        else:
+            for _ in range(total_files):
+                offset = struct.unpack('>I', f.read(4))[0]
+                size = struct.unpack('>I', f.read(4))[0]
+                name = read_cstring(f).decode('utf-8', errors='ignore')
+                entries.append({'offset': offset, 'size': size, 'name': name})
 
         base_dir = path.parent
         base_name = path.stem
@@ -188,24 +213,54 @@ def _rebuild_viv(original_path: Path):
         raise FileNotFoundError(t("extracted_folder_not_found", folder=str(extracted_folder)))
 
     with open(original_path, 'r+b') as f:
-        magic = f.read(2)
-        if magic != b'\xC0\xFB':
+        magic = f.read(4)
+
+        if magic.startswith(b'\xC0\xFB'):
+            f.seek(2)
+        elif magic == b'BIGF':
+            f.seek(4)
+        else:
             raise ValueError(t("invalid_magic"))
 
-        header_size = read_u16_be(f)
-        total_files = read_u16_be(f)
+        if magic.startswith(b'\xC0\xFB'):
+            header_size = read_u16_be(f)
+            total_files = read_u16_be(f)
+        
+        else:
+            f.seek(4, 1)
+            total_files = struct.unpack('>I', f.read(4))[0]
+            header_size = struct.unpack('>I', f.read(4))[0]
 
         header_start = f.tell()
 
         entries = []
-        for _ in range(total_files):
-            entry_pos = f.tell()
-            offset = read_3byte_be_int(f)
-            size = read_3byte_be_int(f)
-            name = read_cstring(f).decode('utf-8', errors='ignore')
-            entries.append({"entry_pos": entry_pos, "name": name})
+        
+        if magic.startswith(b'\xC0\xFB'):
+            for _ in range(total_files):
+                entry_pos = f.tell()
+                offset = read_3byte_be_int(f)
+                size = read_3byte_be_int(f)
+                name = read_cstring(f).decode('utf-8', errors='ignore')
+                entries.append({"entry_pos": entry_pos, "name": name})
+        
+        else:
+            for _ in range(total_files):
+                entry_pos = f.tell()
+                offset = struct.unpack('>I', f.read(4))[0]
+                size = struct.unpack('>I', f.read(4))[0]
+                name = read_cstring(f).decode('utf-8', errors='ignore')
+                entries.append({"entry_pos": entry_pos, "name": name})
 
-        current_offset = align64(header_size)
+        this_pos = f.tell()
+        if magic.startswith(b'\xC0\xFB'):
+            pad_size = align64(this_pos) - this_pos
+        else:
+            pad_size = align2048(this_pos) - this_pos
+
+        if pad_size > 0:
+            f.seek(pad_size, 1)
+        
+        current_offset = f.tell()
         updated_entries = []
 
         logger(t("recreating_to", path=str(original_path)), color=COLOR_LOG_YELLOW)
@@ -225,7 +280,12 @@ def _rebuild_viv(original_path: Path):
             f.seek(current_offset)
             f.write(data)
 
-            pad_size = align64(size) - size
+            if magic.startswith(b'\xC0\xFB'):
+                pad_size = align64(size) - size
+                f.write(b'\x00' * pad_size)
+            else:
+                pad_size = align2048(size) - size
+
             if pad_size > 0:
                 f.write(b'\x00' * pad_size)
 
@@ -235,15 +295,19 @@ def _rebuild_viv(original_path: Path):
                 "size": size
             })
 
-            current_offset = align64(current_offset + size)
+            current_offset = f.tell()
 
             percent = int((i + 1) / total_files * 100)
             logger(t("progress_status", percent=percent, current=i+1, total=total_files), color=COLOR_LOG_YELLOW)
 
         for e in updated_entries:
             f.seek(e["entry_pos"])
-            f.write(write_3byte_be_int(e["offset"]))
-            f.write(write_3byte_be_int(e["size"]))
+            if magic.startswith(b'\xC0\xFB'):
+                f.write(write_3byte_be_int(e["offset"]))
+                f.write(write_3byte_be_int(e["size"]))
+            else:
+                f.write(write_4byte_be_int(e["offset"]))
+                f.write(write_4byte_be_int(e["size"]))
 
     logger(t("rebuild_success", path=str(original_path)), color=COLOR_LOG_GREEN)
 
