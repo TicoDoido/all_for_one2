@@ -158,13 +158,13 @@ def _read_file_info(file_path: Path):
                     file_name = file_names[i].decode('utf-8')
                     output_path = extract_folder / file_name
 
-                    try:
+                    if uncompressed_size > compressed_size:
                         decompressed_data = zlib.decompress(compressed_data)
                         data_to_write = decompressed_data
-                        file_list.write(f"{file_name}\n")
-                    except zlib.error:
+                        file_list.write(f"{file_name},decompressed\n")
+                    else:
                         data_to_write = compressed_data
-                        file_list.write(f"{file_name},uncompressed\n")
+                        file_list.write(f"{file_name}\n")
 
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     output_path.write_bytes(data_to_write)
@@ -207,21 +207,22 @@ def _recreate_file(file_path: Path):
             with open(file_list_path, 'r', encoding='utf-8') as file_list:
                 for line in file_list:
                     line = line.strip()
-                    uncompressed = ',uncompressed' in line
-                    file_name = line.replace(',uncompressed', '')
+                    uncompressed = ',decompressed' in line
+                    file_name = line.replace(',decompressed', '')
                     file_path_local = folder_name / file_name
 
                     if not file_path_local.exists():
                         raise FileNotFoundError(t("file_not_found", file=str(file_path_local)))
 
                     data = file_path_local.read_bytes()
-                    if not uncompressed:
+                    data_size = len(data)
+                    if uncompressed:
                         logger(t("adding_compressed", file=file_name), color=COLOR_LOG_YELLOW)
-                        data = zlib.compress(data)
+                        data = zlib.compress(data, level=6)
 
                     compressed_size = len(data)
                     compressed_data = pad_to_32_bytes(data)
-                    file_infos.append((current_pointer, len(data), compressed_size))
+                    file_infos.append((current_pointer, data_size, compressed_size))
                     new_file.write(compressed_data)
                     current_pointer += len(compressed_data)
 
