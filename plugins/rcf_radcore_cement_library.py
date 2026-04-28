@@ -186,9 +186,16 @@ def _extract_files(file_path: Path):
                 pointers.append((file_offset, file_size))
 
             names = []
-            file.seek(names_offset + 8)
+            if file_version == b'\x02\x01\x01\x01':
+                file.seek(names_offset + 5)
+            else:
+                file.seek(names_offset + 8)
+            
             for _ in range(total_items):
-                file.seek(12, os.SEEK_CUR)
+                if file_version == b'\x02\x01\x01\x01':
+                    file.seek(15, 1)
+                else:
+                    file.seek(12, 1)
                 name_size = struct.unpack('<I', file.read(4))[0]
                 name_bytes = file.read(name_size)
                 try:
@@ -359,13 +366,13 @@ def _recreate_rcf(original_file_path: Path, txt_names_path: Path):
             endian_format = '<' if file_version == b'\x02\x01\x00\x01' else '>'
             new_rcf.seek(60)
             for pointer, original_size in pointers:
-                new_rcf.seek(4, os.SEEK_CUR)
+                new_rcf.seek(4, 1)
                 new_rcf.write(struct.pack(f'{endian_format}I', pointer))
                 new_rcf.write(struct.pack(f'{endian_format}I', original_size))
         else:
             new_rcf.seek(2064)
             for pointer, original_size in pointers:
-                new_rcf.seek(4, os.SEEK_CUR)
+                new_rcf.seek(4, 1)
                 new_rcf.write(struct.pack('<I', pointer))
                 new_rcf.write(struct.pack('<I', original_size))
 
