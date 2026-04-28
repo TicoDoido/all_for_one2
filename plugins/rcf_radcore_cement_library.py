@@ -278,7 +278,7 @@ def _recreate_rcf(original_file_path: Path, txt_names_path: Path):
 
     base_filename = original_file_path.stem
     base_directory = original_file_path.parent
-    new_rcf_path = base_directory / f"new_{base_filename}.rcf"
+    new_rcf_path = base_directory / f"{base_filename}_MOD.rcf"
     extracted_files_directory = base_directory / base_filename
 
     if not extracted_files_directory.exists():
