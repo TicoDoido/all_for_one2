@@ -16,6 +16,7 @@ PLUGIN_TRANSLATIONS = {
         "extract_text": "Converter MSG para TXT",
         "rebuild_text": "Converter TXT para MSG",
         "extract_tex": "Converter TEX para DDS",
+        "inserct_tex": "Inserir DDS no TEX",
         "select_msg_file": "Selecione arquivo .MSG",
         "select_txt_file": "Selecione arquivo .TXT",
         "select_tex_file": "Selecione arquivo .TEX",
@@ -29,7 +30,7 @@ PLUGIN_TRANSLATIONS = {
         "error": "Erro",
         "extraction_error": "Erro na conversão: {error}",
         "recreation_error": "Erro na conversão reversa: {error}",
-        "invalid_magic": "Arquivo não é um .msg válido (Magic Number incorreto)",
+        "invalid_magic": "Arquivo não é válido (Magic Number incorreto)",
         "processing_file": "Processando arquivo: {file}",
         "unknown_sequence": "[{hex}]",
         "cancelled": "Seleção cancelada.",
@@ -45,7 +46,8 @@ PLUGIN_TRANSLATIONS = {
         "plugin_description": "Converts .msg(MSG1) files to text and vice versa",
         "extract_text": "Convert MSG to TXT",
         "rebuild_text": "Convert TXT to MSG",
-        "extract_tex": "Convert TEX to DDS",
+        "extract_tex": "Convert DDS to TEX",
+        "inserct_tex": "Convert TEX to DDS",
         "select_msg_file": "Select .MSG file",
         "select_txt_file": "Select .TXT file",
         "select_tex_file": "Select .TEX file",
@@ -59,7 +61,7 @@ PLUGIN_TRANSLATIONS = {
         "error": "Error",
         "extraction_error": "Conversion error: {error}",
         "recreation_error": "Reverse conversion error: {error}",
-        "invalid_magic": "File is not a valid .msg (Incorrect Magic Number)",
+        "invalid_magic": "File is not valid (Incorrect Magic Number)",
         "processing_file": "Processing file: {file}",
         "unknown_sequence": "[{hex}]",
         "cancelled": "Selection cancelled.",
@@ -76,6 +78,7 @@ PLUGIN_TRANSLATIONS = {
         "extract_text": "Convertir MSG a TXT",
         "rebuild_text": "Convertir TXT a MSG",
         "extract_tex": "Convertir TEX a DDS",
+        "inserct_tex": "Convertir DDS a TEX",
         "select_msg_file": "Seleccionar archivo .MSG",
         "select_txt_file": "Seleccionar archivo .TXT",
         "select_tex_file": "Seleccionar archivo .TEX",
@@ -89,7 +92,7 @@ PLUGIN_TRANSLATIONS = {
         "error": "Error",
         "extraction_error": "Error de conversión: {error}",
         "recreation_error": "Error de conversión inversa: {error}",
-        "invalid_magic": "Archivo no es un .msg válido (Magic Number incorrecto)",
+        "invalid_magic": "Archivo no es válido (Magic Number incorrecto)",
         "processing_file": "Procesando archivo: {file}",
         "unknown_sequence": "[{hex}]",
         "cancelled": "Selección cancelada.",
@@ -342,24 +345,166 @@ LOST_PLANET_TABLE = {
     b'\x00\xB0\x00\xBB\x5C\x02': '°'.encode('utf-8'),  # °
     b'\x00\xBF\x00\xA6\x8C\x02': '¿'.encode('utf-8'),  # ¿
     b'\x00\xC0\x00\x97\x98\x02': 'À'.encode('utf-8'),  # À
+    b'\x00\xC1\x00\xA9\x98\x02': 'Á'.encode('utf-8'),  # Á
     b'\x00\xC4\x00\x83\x98\x02': 'Ä'.encode('utf-8'),  # Ä
     b'\x00\xC7\x00\x9C\xA4\x02': 'Ç'.encode('utf-8'),  # Ç
     b'\x00\xC9\x00\x98\x98\x02': 'É'.encode('utf-8'),  # É
+    b'\x00\xCA\x00\x93\x98\x02': 'Ê'.encode('utf-8'),  # Ê
+    b'\x00\xCD\x00\xA4\x40\x02': 'Í'.encode('utf-8'),  # Í
     b'\x00\xDC\x00\x85\xA4\x02': 'Ü'.encode('utf-8'),  # Ü
     b'\x00\xE0\x00\x91\x7E\x02': 'à'.encode('utf-8'),  # à
     b'\x00\xE1\x00\xA5\x7E\x02': 'á'.encode('utf-8'),  # á
+    b'\x00\xE2\x00\x96\x7E\x02': 'â'.encode('utf-8'),  # â
     b'\x00\xE4\x00\x81\x7E\x02': 'ä'.encode('utf-8'),  # ä
     b'\x00\xE7\x00\x9B\x72\x02': 'ç'.encode('utf-8'),  # ç
     b'\x00\xE8\x00\x90\x7E\x02': 'è'.encode('utf-8'),  # è
     b'\x00\xE9\x00\x8E\x7E\x02': 'é'.encode('utf-8'),  # é
     b'\x00\xEA\x00\x92\x7E\x02': 'ê'.encode('utf-8'),  # ê
     b'\x00\xED\x00\xA3\x40\x02': 'í'.encode('utf-8'),  # í
+    b'\x00\xEE\x00\x99\x40\x02': 'î'.encode('utf-8'),  # î
     b'\x00\xF1\x00\xA8\x7E\x02': 'ñ'.encode('utf-8'),  # ñ
     b'\x00\xF2\x00\xA1\x7E\x02': 'ò'.encode('utf-8'),  # ò
     b'\x00\xF3\x00\xA7\x7E\x02': 'ó'.encode('utf-8'),  # ó
     b'\x00\xF4\x00\x95\x7E\x02': 'ô'.encode('utf-8'),  # ô
     b'\x00\xF6\x00\x84\x7E\x02': 'ö'.encode('utf-8'),  # ö
+    b'\x00\xF9\x00\x9D\x7E\x02': 'ù'.encode('utf-8'),  # ù
     b'\x00\xFA\x00\xA4\x7E\x02': 'ú'.encode('utf-8'),  # ú
+    b'\x00\xFB\x00\x9E\x7E\x02': 'û'.encode('utf-8'),  # û
+}
+
+LOST_PLANET_TABLE_PC = {
+    b'\x01\x00\x00\x00\x00\x04': b'[FIM]\n',
+    b'\x03\x00\x00\x00\x00\x04': b'\n',
+    b'\x20\x00\x0E\x00\x40\x02': ' '.encode('utf-8'),  # espaço
+    b'\x21\x00\x0A\x00\x40\x02': '!'.encode('utf-8'),  # !
+    b'\x22\x00\x14\x00\x50\x02': '"'.encode('utf-8'),  # "
+    b'\x23\x00\x57\x00\x7E\x02': '#'.encode('utf-8'),  # #
+    b'\x24\x00\x1B\x00\x7E\x02': '$'.encode('utf-8'),  # $
+    b'\x25\x00\x7F\x00\xCA\x02': '%'.encode('utf-8'),  # %
+    b'\x26\x00\x0F\x00\x98\x02': '&'.encode('utf-8'),  # &
+    b'\x27\x00\x15\x00\x31\x02': "'".encode('utf-8'),  # '
+    b'\x28\x00\x0C\x00\x4C\x02': '('.encode('utf-8'),  # (
+    b'\x29\x00\x0D\x00\x4C\x02': ')'.encode('utf-8'),  # )
+    b'\x2A\x00\x54\x00\x58\x02': '*'.encode('utf-8'),  # *
+    b'\x2B\x00\x18\x00\x85\x02': '+'.encode('utf-8'),  # +
+    b'\x2C\x00\x12\x00\x40\x02': ','.encode('utf-8'),  # ,
+    b'\x2D\x00\x17\x00\x4C\x02': '-'.encode('utf-8'),  # -
+    b'\x2E\x00\x13\x00\x40\x02': '.'.encode('utf-8'),  # .
+    b'\x2F\x00\x19\x00\x40\x02': '/'.encode('utf-8'),  # /
+    b'\x30\x00\x00\x00\x7E\x02': '0'.encode('utf-8'),  # 0
+    b'\x31\x00\x01\x00\x7E\x02': '1'.encode('utf-8'),  # 1
+    b'\x32\x00\x02\x00\x7E\x02': '2'.encode('utf-8'),  # 2
+    b'\x33\x00\x03\x00\x7E\x02': '3'.encode('utf-8'),  # 3
+    b'\x34\x00\x04\x00\x7E\x02': '4'.encode('utf-8'),  # 4
+    b'\x35\x00\x05\x00\x7E\x02': '5'.encode('utf-8'),  # 5
+    b'\x36\x00\x06\x00\x7E\x02': '6'.encode('utf-8'),  # 6
+    b'\x37\x00\x07\x00\x7E\x02': '7'.encode('utf-8'),  # 7
+    b'\x38\x00\x08\x00\x7E\x02': '8'.encode('utf-8'),  # 8
+    b'\x39\x00\x09\x00\x7E\x02': '9'.encode('utf-8'),  # 9
+    b'\x3A\x00\x10\x00\x40\x02': ':'.encode('utf-8'),  # :
+    b'\x3B\x00\x11\x00\x40\x02': ';'.encode('utf-8'),  # ;
+    b'\x3D\x00\x78\x00\x85\x02': '='.encode('utf-8'),  # =
+    b'\x3F\x00\x0B\x00\x7E\x02': '?'.encode('utf-8'),  # ?
+    b'\x40\x00\x1A\x00\xE9\x02': '@'.encode('utf-8'),  # @
+    b'\x41\x00\x1C\x00\x98\x02': 'A'.encode('utf-8'),  # A
+    b'\x42\x00\x1D\x00\x98\x02': 'B'.encode('utf-8'),  # B
+    b'\x43\x00\x1E\x00\xA4\x02': 'C'.encode('utf-8'),  # C
+    b'\x44\x00\x1F\x00\xA4\x02': 'D'.encode('utf-8'),  # D
+    b'\x45\x00\x20\x00\x98\x02': 'E'.encode('utf-8'),  # E
+    b'\x46\x00\x21\x00\x8C\x02': 'F'.encode('utf-8'),  # F
+    b'\x47\x00\x22\x00\xB2\x02': 'G'.encode('utf-8'),  # G
+    b'\x48\x00\x23\x00\xA4\x02': 'H'.encode('utf-8'),  # H
+    b'\x49\x00\x24\x00\x40\x02': 'I'.encode('utf-8'),  # I
+    b'\x4A\x00\x25\x00\x72\x02': 'J'.encode('utf-8'),  # J
+    b'\x4B\x00\x26\x00\x98\x02': 'K'.encode('utf-8'),  # K
+    b'\x4C\x00\x27\x00\x7E\x02': 'L'.encode('utf-8'),  # L
+    b'\x4D\x00\x28\x00\xBE\x02': 'M'.encode('utf-8'),  # M
+    b'\x4E\x00\x29\x00\xA4\x02': 'N'.encode('utf-8'),  # N
+    b'\x4F\x00\x2A\x00\xB2\x02': 'O'.encode('utf-8'),  # O
+    b'\x50\x00\x2B\x00\x98\x02': 'P'.encode('utf-8'),  # P
+    b'\x51\x00\x2C\x00\xB2\x02': 'Q'.encode('utf-8'),  # Q
+    b'\x52\x00\x2D\x00\xA4\x02': 'R'.encode('utf-8'),  # R
+    b'\x53\x00\x2E\x00\x98\x02': 'S'.encode('utf-8'),  # S
+    b'\x54\x00\x2F\x00\x8C\x02': 'T'.encode('utf-8'),  # T
+    b'\x55\x00\x30\x00\xA4\x02': 'U'.encode('utf-8'),  # U
+    b'\x56\x00\x31\x00\x98\x02': 'V'.encode('utf-8'),  # V
+    b'\x57\x00\x32\x00\xD8\x02': 'W'.encode('utf-8'),  # W
+    b'\x58\x00\x33\x00\x98\x02': 'X'.encode('utf-8'),  # X
+    b'\x59\x00\x34\x00\x98\x02': 'Y'.encode('utf-8'),  # Y
+    b'\x5A\x00\x35\x00\x8C\x02': 'Z'.encode('utf-8'),  # Z
+    b'\x5B\x00\x50\x00\x40\x02': '<'.encode('utf-8'),  # [
+    b'\x5C\x00\x55\x00\x40\x02': '\\'.encode('utf-8'),  # \
+    b'\x5D\x00\x51\x00\x40\x02': '>'.encode('utf-8'),  # ]
+    b'\x5E\x00\x56\x00\x6B\x02': '^'.encode('utf-8'),  # ^
+    b'\x5F\x00\x7A\x00\x7E\x02': '_'.encode('utf-8'),  # _
+    b'\x60\x00\x58\x00\x4C\x02': '`'.encode('utf-8'),  # `
+    b'\x61\x00\x36\x00\x7E\x02': 'a'.encode('utf-8'),  # a
+    b'\x62\x00\x37\x00\x7E\x02': 'b'.encode('utf-8'),  # b
+    b'\x63\x00\x38\x00\x72\x02': 'c'.encode('utf-8'),  # c
+    b'\x64\x00\x39\x00\x7E\x02': 'd'.encode('utf-8'),  # d
+    b'\x65\x00\x3A\x00\x7E\x02': 'e'.encode('utf-8'),  # e
+    b'\x66\x00\x3B\x00\x40\x02': 'f'.encode('utf-8'),  # f
+    b'\x67\x00\x3C\x00\x7E\x02': 'g'.encode('utf-8'),  # g
+    b'\x68\x00\x3D\x00\x7E\x02': 'h'.encode('utf-8'),  # h
+    b'\x69\x00\x3E\x00\x31\x02': 'i'.encode('utf-8'),  # i
+    b'\x6A\x00\x3F\x00\x31\x02': 'j'.encode('utf-8'),  # j
+    b'\x6B\x00\x40\x00\x72\x02': 'k'.encode('utf-8'),  # k
+    b'\x6C\x00\x41\x00\x31\x02': 'l'.encode('utf-8'),  # l
+    b'\x6D\x00\x42\x00\xBE\x02': 'm'.encode('utf-8'),  # m
+    b'\x6E\x00\x43\x00\x7E\x02': 'n'.encode('utf-8'),  # n
+    b'\x6F\x00\x44\x00\x7E\x02': 'o'.encode('utf-8'),  # o
+    b'\x70\x00\x45\x00\x7E\x02': 'p'.encode('utf-8'),  # p
+    b'\x71\x00\x46\x00\x7E\x02': 'q'.encode('utf-8'),  # q
+    b'\x72\x00\x47\x00\x4C\x02': 'r'.encode('utf-8'),  # r
+    b'\x73\x00\x48\x00\x72\x02': 's'.encode('utf-8'),  # s
+    b'\x74\x00\x49\x00\x40\x02': 't'.encode('utf-8'),  # t
+    b'\x75\x00\x4A\x00\x7E\x02': 'u'.encode('utf-8'),  # u
+    b'\x76\x00\x4B\x00\x72\x02': 'v'.encode('utf-8'),  # v
+    b'\x77\x00\x4C\x00\xA4\x02': 'w'.encode('utf-8'),  # w
+    b'\x78\x00\x4D\x00\x72\x02': 'x'.encode('utf-8'),  # x
+    b'\x79\x00\x4E\x00\x72\x02': 'y'.encode('utf-8'),  # y
+    b'\x7A\x00\x4F\x00\x72\x02': 'z'.encode('utf-8'),  # z
+    b'\x7B\x00\x59\x00\x4C\x02': '{'.encode('utf-8'),  # {
+    b'\x7C\x00\x79\x00\x3B\x02': '|'.encode('utf-8'),  # |
+    b'\x7D\x00\x5A\x00\x4C\x02': '}'.encode('utf-8'),  # }
+    b'\x7E\x00\x16\x00\x85\x02': '~'.encode('utf-8'),  # ~
+    b'\x1C\x20\xBB\x00\x4C\x02': '<'.encode('utf-8'),  # <
+    b'\x1D\x20\xBC\x00\x4C\x02': '>'.encode('utf-8'),  # >
+    b'\x92\x21\xB7\x00\x85\x00': '‚'.encode('utf-8'),  # ‚
+    b'\x93\x21\xB3\x00\x85\x00': '“'.encode('utf-8'),  # “
+    b'\xA1\x00\xA8\x00\x4C\x02': '¡'.encode('utf-8'),  # ¡
+    b'\xA5\x00\x02\x7E\x73\x20': '¥'.encode('utf-8'),  # ¥
+    b'\xBA\x00\x9F\x00\x53\x02': 'ª'.encode('utf-8'),  # ª
+    b'\xB0\x00\xB8\x00\x5C\x02': '°'.encode('utf-8'),  # °
+    b'\xBF\x00\xA3\x00\x8C\x02': '¿'.encode('utf-8'),  # ¿
+    b'\xC0\x00\x94\x00\x98\x02': 'À'.encode('utf-8'),  # À
+    b'\xC1\x00\xA6\x00\x98\x02': 'Á'.encode('utf-8'),  # Á
+    b'\xC4\x00\x83\x00\x98\x02': 'Ä'.encode('utf-8'),  # Ä
+    b'\xC7\x00\x99\x00\xA4\x02': 'Ç'.encode('utf-8'),  # Ç
+    b'\xC9\x00\x95\x00\x98\x02': 'É'.encode('utf-8'),  # É
+    b'\xCA\x00\x90\x00\x98\x02': 'Ê'.encode('utf-8'),  # Ê
+    b'\xCD\x00\xA7\x00\x40\x02': 'Í'.encode('utf-8'),  # Í
+    b'\xDC\x00\x85\x00\xA4\x02': 'Ü'.encode('utf-8'),  # Ü
+    b'\xE0\x00\x8E\x00\x7E\x02': 'à'.encode('utf-8'),  # à
+    b'\xE1\x00\xA2\x00\x7E\x02': 'á'.encode('utf-8'),  # á
+    b'\xE2\x00\x93\x00\x7E\x02': 'â'.encode('utf-8'),  # â
+    b'\xE4\x00\x81\x00\x7E\x02': 'ä'.encode('utf-8'),  # ä
+    b'\xE7\x00\x98\x00\x72\x02': 'ç'.encode('utf-8'),  # ç
+    b'\xE8\x00\x8D\x00\x7E\x02': 'è'.encode('utf-8'),  # è
+    b'\xE9\x00\x8B\x00\x7E\x02': 'é'.encode('utf-8'),  # é
+    b'\xEA\x00\x8F\x00\x7E\x02': 'ê'.encode('utf-8'),  # ê
+    b'\xED\x00\xA0\x00\x40\x02': 'í'.encode('utf-8'),  # í
+    b'\xEE\x00\x96\x00\x40\x02': 'î'.encode('utf-8'),  # î
+    b'\xF1\x00\xA5\x00\x7E\x02': 'ñ'.encode('utf-8'),  # ñ
+    b'\xF3\x00\x9E\x00\x7E\x02': 'ò'.encode('utf-8'),  # ò
+    b'\xF3\x00\xA4\x00\x7E\x02': 'ó'.encode('utf-8'),  # ó
+    b'\xF4\x00\x92\x00\x7E\x02': 'ô'.encode('utf-8'),  # ô
+    b'\xF6\x00\x84\x00\x7E\x02': 'ö'.encode('utf-8'),  # ö
+    b'\xF9\x00\x9A\x00\x7E\x02': 'ù'.encode('utf-8'),  # ù
+    b'\xFA\x00\xA1\x00\x7E\x02': 'ú'.encode('utf-8'),  # ú
+    b'\xFB\x00\x9B\x00\x7E\x02': 'û'.encode('utf-8'),  # û
+    b'\xFC\x00\x82\x00\x7E\x02': 'ü'.encode('utf-8'),  # ü
+    b'\x52\x01\xBA\x00\xE4\x02': 'œ'.encode('utf-8'),  # œ
 }
 
 LOST_PLANET_TABLE_X360 = {
@@ -508,10 +653,10 @@ def _convert_msg_to_text(msg_path: Path, txt_path: Path):
         table = LOST_PLANET_TABLE
     elif game == "Lost Planet EC(X360)":
         table = LOST_PLANET_TABLE_X360
+    elif game == "Lost Planet EC(PC)":
+        table = LOST_PLANET_TABLE_PC
     else:
         table = DEAD_RISING_TABLE
-        
-    endian = '>' if game in ["Lost Planet EC(PS3)", "Lost Planet EC(X360)"] else '<'
 
     logger(t("processing_file", file=msg_path.name), color=COLOR_LOG_YELLOW)
 
@@ -520,6 +665,8 @@ def _convert_msg_to_text(msg_path: Path, txt_path: Path):
         if magic != b'MSG1':
             raise ValueError(t("invalid_magic"))
 
+        endiam_test = bin_file.read(2)
+        endian = '>' if endiam_test == b'\x00\x00' else '<'
         bin_file.seek(4)
         text_start = struct.unpack(f'{endian}I', bin_file.read(4))[0]
         bin_file.seek(text_start)
@@ -535,6 +682,8 @@ def _convert_msg_to_text(msg_path: Path, txt_path: Path):
                 else:
                     hex_str = ''.join(f'{b:02X}' for b in block)
                     char = t("unknown_sequence", hex=hex_str)
+                # Sanitização para edição mais simples
+                char = char.replace("ä", "ã").replace("ö", "õ").replace("Ä", "Ã").replace("Ö", "Õ").replace("[FIM]\n", "[FIM]").replace("\n", "[BR]").replace("[FIM]", "[FIM]\n")
 
                 txt_file.write(char)
 
@@ -547,6 +696,8 @@ def _convert_text_to_msg(txt_path: Path, msg_path: Path):
         table = LOST_PLANET_TABLE
     elif game == "Lost Planet EC(X360)":
         table = LOST_PLANET_TABLE_X360
+    elif game == "Lost Planet EC(PC)":
+        table = LOST_PLANET_TABLE_PC
     else:
         table = DEAD_RISING_TABLE
         
@@ -595,7 +746,17 @@ def _convert_text_to_msg(txt_path: Path, msg_path: Path):
                         except ValueError:
                             pass
 
+                    if inner == 'BR':
+                        key = '\n'
+                        block = reverse_table.get(key)
+                        if block is None:
+                            raise ValueError("Mapping for '\\n' not found in reverse table.")
+                        bin_file.write(block)
+                        i = end_idx + 1
+                        continue
+
             ch = text[i]
+            ch = ch.replace("ã", "ä").replace("õ", "ö").replace("Ã", "Ä").replace("Õ", "Ö")
             block = reverse_table.get(ch)
             if block is not None:
                 bin_file.write(block)
@@ -603,6 +764,7 @@ def _convert_text_to_msg(txt_path: Path, msg_path: Path):
                 logger(t("unmapped_char", file=txt_path.name, char=repr(ch)), color=COLOR_LOG_YELLOW)
             i += 1
 
+        bin_file.truncate()
         file_size = bin_file.tell()
         bin_file.seek(8)
         bin_file.write(struct.pack(f'{endian}I', file_size))
@@ -631,18 +793,36 @@ def _convert_tex_to_dds(tex_path: Path, dds_path: Path):
 
         # Unpack correto (versão, pixel_format, width, height)
         version = struct.unpack(endian_str + 'H', file_data[pos:pos + 2])[0]
-        pos += 8                               # campos desconhecidos
-        width = struct.unpack(endian_str + 'H', file_data[pos:pos + 2])[0]
-        pos += 2
-        height = struct.unpack(endian_str + 'H', file_data[pos:pos + 2])[0]
-        pos += 2
+        pos += 6                               # campos desconhecidos
         
-        pos += 7
-        pixel_format = file_data[pos]          # 1 byte
-
-        pos += 21                             # mais campos desconhecidos
+        plataform_check = struct.unpack(endian_str + 'H', file_data[pos:pos + 2])[0]
+        if plataform_check == 0:
+            pos += 2
+            width = struct.unpack(endian_str + 'H', file_data[pos:pos + 2])[0]
+            pos += 2
+            height = struct.unpack(endian_str + 'H', file_data[pos:pos + 2])[0]
+            pos += 6
+            check_pc = file_data[pos + 1]
+            
+            if endian_str == '>': # Xbox 360
+                pos += 3
+                pixel_format = file_data[pos]          # 1 byte
+                pos += 17                             # mais campos desconhecidos
+                img_data_offset = struct.unpack(endian_str + 'I', file_data[pos:pos + 4])[0]
+            else:
+                pixel_format = file_data[pos:pos + 4]
+                pos += 20
+                img_data_offset = struct.unpack(endian_str + 'I', file_data[pos:pos + 4])[0]
+        else:
+            width = struct.unpack(endian_str + 'H', file_data[pos:pos + 2])[0]
+            pos += 2
+            height = struct.unpack(endian_str + 'H', file_data[pos:pos + 2])[0]
+            pos += 4
+            pixel_format = file_data[pos:pos + 4]
+            img_data_offset = struct.unpack(endian_str + 'I', file_data[36:40])[0]
 
         # Configurações de formato
+        is_x360 = False
         is_compressed = False
         block_size = 0
         bpp = 0
@@ -656,18 +836,39 @@ def _convert_tex_to_dds(tex_path: Path, dds_path: Path):
             bpp = 32
             dds_fourcc = b'\0\0\0\0'
             pitch = 64
+            is_x360 = True
         elif pixel_format in [82, 82]:
             is_compressed = True
             block_size = 8
             bpp = 4
             dds_fourcc = b'DXT1'
             pitch = 8
+            is_x360 = True
         elif pixel_format == 84:
             is_compressed = True
             block_size = 16
             bpp = 8
             dds_fourcc = b'DXT5'
             pitch = 16
+            is_x360 = True
+        elif pixel_format in [b'\x00\x00\x00\x15', b'\x15\x00\x00\x00']:
+            is_compressed = False
+            block_size = 0
+            bpp = 32
+            dds_fourcc = b'\0\0\0\0'
+            pitch = 64
+        elif pixel_format in [b'5TXD', b'DXT5']:
+            is_compressed = True
+            block_size = 16
+            bpp = 8
+            dds_fourcc = b'DXT5'
+            pitch = 16
+        elif pixel_format in [b'1TXD', b'DXT1']:
+            is_compressed = True
+            block_size = 8
+            bpp = 4
+            dds_fourcc = b'DXT1'
+            pitch = 8
         else:
             if logger:
                 logger(t("unhandled_format", pf=pixel_format), color="#FACC15")
@@ -681,13 +882,11 @@ def _convert_tex_to_dds(tex_path: Path, dds_path: Path):
         else:
             data_size = width * height * (bpp // 8)
 
-        img_data = file_data[pos:]
-        logger(f"OFFSET: {pos} tamanho: {len(img_data)}")
+        img_data = file_data[img_data_offset:]
 
         if len(img_data) != data_size:
             if logger:
                 logger(t("size_mismatch", got=len(img_data), exp=data_size), color="#FACC15")
-            # Continua mesmo assim (como no código original)
 
         # === MONTA HEADER DDS ===
         dds = b'DDS '
@@ -761,11 +960,15 @@ def _convert_tex_to_dds(tex_path: Path, dds_path: Path):
             blk_px = 1
             tex_pitch = bpp // 8   # 4 bytes para RGBA8888
 
-        img_data = unswizzle_x360(img_data, width, height, blk_px, tex_pitch)
+        if is_x360:
+            img_data = unswizzle_x360(img_data, width, height, blk_px, tex_pitch)
         
         if pixel_format == 134:
-            img_data = rgba_to_argb(img_data)
-        
+            img_data = swap_color_channel(img_data)
+        if pixel_format == b'\x00\x00\x00\x15':
+            img_data = swap_color_channel_ps3(img_data)
+        if pixel_format == b'\x15\x00\x00\x00':
+            img_data = swap_color_channel_pc(img_data)
         # Adiciona os dados da imagem
         dds += img_data
 
@@ -780,20 +983,151 @@ def _convert_tex_to_dds(tex_path: Path, dds_path: Path):
             logger(t("extraction_error", error=str(e)), color="#EF4444")
         raise
 
+def _convert_dds_to_tex(tex_path: Path, dds_path: Path):
+    try:
+        # Ler o arquivo DDS
+        with open(dds_path, "rb") as dds_file:
+            dds_data = dds_file.read()
 
-def rgba_to_argb(data: bytes) -> bytes:
+        if not dds_data.startswith(b'DDS '):
+            logger(t("invalid_magic"), color="#EF4444")
+
+        # Parse do header DDS para pegar width, height e formato
+        pos = 4  # após "DDS "
+        header_size = struct.unpack('<I', dds_data[pos:pos+4])[0]
+        pos += 8  # pula flags
+        height = struct.unpack('<I', dds_data[pos:pos+4])[0]
+        pos += 4
+        width = struct.unpack('<I', dds_data[pos:pos+4])[0]
+        pos += 68  # pula até o FourCC
+
+        fourcc = dds_data[pos:pos+4]
+
+        # Determina formato e parâmetros de swizzle
+        if fourcc == b'DXT1':
+            is_compressed = True
+            block_size = 8
+            bpp = 4
+        elif fourcc == b'DXT5':
+            is_compressed = True
+            block_size = 16
+            bpp = 8
+        else:
+            # Assume RGBA8888 (pixel_format 134)
+            is_compressed = False
+            block_size = 0
+            bpp = 32
+
+        if is_compressed:
+            blk_px = 4
+            tex_pitch = block_size
+        else:
+            blk_px = 1
+            tex_pitch = bpp // 8
+
+        # Extrai apenas os dados da imagem do DDS
+        data_offset = 4 + header_size
+        img_data = dds_data[data_offset:]
+
+        # Substituir apenas os dados da imagem no arquivo .tex
+        with open(tex_path, "r+b") as f:
+            magic = f.read(4)
+            if magic == b'\x00XET':
+                endian_str = '>'
+            elif magic == b'TEX\x00':
+                endian_str = '<'
+
+            f.seek(10)
+            plataform_check = struct.unpack(endian_str + 'H', f.read(2))[0]
+            if plataform_check == 0:
+                f.seek(20)
+                pc_check = f.read(4)
+                
+                if pc_check in [b'\x15\x00\x00\x00', b'DXT1', b'DXT5']:
+                    if fourcc == b'\0\0\0\0':
+                        img_data = swap_color_channel_pc(img_data)
+                    f.seek(40)
+                    img_data_offset = struct.unpack(endian_str + 'I', f.read(4))[0]
+                    f.seek(img_data_offset)
+                    f.write(img_data)
+
+                else:
+                    if fourcc == b'\0\0\0\0':
+                        img_data = swap_color_channel(img_data)
+                    img_data = swizzle_x360(img_data, width, height, blk_px, tex_pitch)
+                    f.seek(40)
+                    img_data_offset = struct.unpack(endian_str + 'I', f.read(4))[0]
+                    f.seek(img_data_offset)
+                    f.write(img_data)
+
+            else:
+                if fourcc == b'\0\0\0\0':
+                    img_data = reswap_color_channel_ps3(img_data)
+                f.seek(36)
+                img_data_offset = struct.unpack(endian_str + 'I', f.read(4))[0]
+                f.seek(img_data_offset)
+                f.write(img_data)
+
+        logger(t("recreation_success", path=str(tex_path)), color=COLOR_LOG_GREEN)
+
+    except Exception as e:
+        logger(t("recreation_error", error=str(e)), color=COLOR_LOG_RED)
+        raise
+
+
+def swap_color_channel(data: bytes) -> bytes:
     out = bytearray(len(data))
     for i in range(0, len(data), 4):
         r = data[i]
-        a = data[i + 1]
-        g = data[i + 2]
-        b = data[i + 3]
-        
+        g = data[i + 1]
+        b = data[i + 2]
+        a = data[i + 3]
 
-        
+        out[i]     = r
+        out[i + 1] = a
+        out[i + 2] = b
+        out[i + 3] = g
+    return bytes(out)
+
+def swap_color_channel_pc(data: bytes) -> bytes:
+    out = bytearray(len(data))
+    for i in range(0, len(data), 4):
+        r = data[i]
+        g = data[i + 1]
+        b = data[i + 2]
+        a = data[i + 3]
+
         out[i]     = b
-        out[i + 1] = r
-        out[i + 2] = g
+        out[i + 1] = g
+        out[i + 2] = r
+        out[i + 3] = a
+    return bytes(out)
+
+def swap_color_channel_ps3(data: bytes) -> bytes:
+    out = bytearray(len(data))
+    for i in range(0, len(data), 4):
+        r = data[i]
+        g = data[i + 1]
+        b = data[i + 2]
+        a = data[i + 3]
+
+        out[i]     = g
+        out[i + 1] = b
+        out[i + 2] = a
+        out[i + 3] = r
+    return bytes(out)
+
+def reswap_color_channel_ps3(data: bytes) -> bytes:
+    out = bytearray(len(data))
+    for i in range(0, len(data), 4):
+        g = data[i]
+        b = data[i + 1]
+        a = data[i + 2]
+        r = data[i + 3]
+
+        out[i]     = r
+        out[i + 1] = g
+        out[i + 2] = b
         out[i + 3] = a
     return bytes(out)
 
@@ -846,18 +1180,33 @@ def _process_extract_tex(tex_paths):
     logger(t("operation_completed"), color=COLOR_LOG_GREEN)
 
 
+def _process_insert_tex(tex_paths):
+    for tex_path in tex_paths:
+        logger(t("processing", name=tex_path.name), color=COLOR_LOG_YELLOW)
+        try:
+            dds_path = tex_path.with_suffix('.dds')
+            _convert_dds_to_tex(tex_path, dds_path)
+            logger(t("extraction_success", path=str(dds_path)), color=COLOR_LOG_GREEN)
+        except Exception as e:
+            logger(t("extraction_error", error=str(e)), color=COLOR_LOG_RED)
+
+    logger(t("operation_completed"), color=COLOR_LOG_GREEN)
+
+
 # ==============================================================================
 # AÇÕES DOS COMANDOS
 # ==============================================================================
 
 def action_extract():
     fp_extract.pick_files(
+        allow_multiple=(True),
         allowed_extensions=["msg"],
         dialog_title=t("select_msg_file"),
     )
 
 def action_rebuild():
     fp_rebuild.pick_files(
+        allow_multiple=(True),
         allowed_extensions=["txt"],
         dialog_title=t("select_txt_file"),
     )
@@ -865,10 +1214,16 @@ def action_rebuild():
 def action_extract_tex():
     fp_extract_tex.pick_files(
         allow_multiple=(True),
-        allowed_extensions=["tex"],
+        allowed_extensions=["tex", "3CAD8076"],
         dialog_title=t("select_tex_file"),
     )
 
+def action_insert_tex():
+    fp_insert_tex.pick_files(
+        allow_multiple=(True),
+        allowed_extensions=["tex", "3CAD8076"],
+        dialog_title=t("select_tex_file"),
+    )
 
 # ==============================================================================
 # FilePickers
@@ -892,6 +1247,12 @@ fp_extract_tex = ft.FilePicker(
     )
 )
 
+fp_insert_tex = ft.FilePicker(
+    on_result=lambda e: (
+        _process_insert_tex([Path(f.path) for f in e.files]) if e.files else logger(t("cancelled"))
+    )
+)
+
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
@@ -905,7 +1266,7 @@ def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
     host_page = page
 
     if host_page:
-        host_page.overlay.extend([fp_extract, fp_rebuild, fp_extract_tex])
+        host_page.overlay.extend([fp_extract, fp_rebuild, fp_extract_tex, fp_insert_tex])
         host_page.update()
 
     return {
@@ -915,12 +1276,13 @@ def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
             {
                 "name": "tabela_jogo",
                 "label": t("select_game"),
-                "values": ["Lost Planet EC(PS3)", "Lost Planet EC(X360)", "Dead Rising (Xbox360)"]
+                "values": ["Lost Planet EC(PS3)", "Lost Planet EC(X360)", "Lost Planet EC(PC)", "Dead Rising (Xbox360)"]
             }
         ],
         "commands": [
             {"label": t("extract_text"), "action": action_extract},
             {"label": t("rebuild_text"), "action": action_rebuild},
             {"label": t("extract_tex"), "action": action_extract_tex},
+            {"label": t("inserct_tex"), "action": action_insert_tex},
         ]
     }

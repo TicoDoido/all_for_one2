@@ -11,7 +11,7 @@ import flet as ft
 PLUGIN_TRANSLATIONS = {
     "pt_BR": {
         "plugin_name": "DAT/HED/DB Eternal Poison (PS2)",
-        "plugin_description": "Extrai e reempacota arquivos de containers DAT/HED do Eternal Poison (PS2)",
+        "plugin_description": "Extrai e reempacota arquivos de containers DAT/HED do Eternal Poison/Cowboy Bebop - Tsuitou no Yakyoku (PS2)",
         "extract_file": "Extrair arquivos .DAT/.HED",
         "rebuild_file": "Reempacotar arquivos .DAT/.HED",
         "extract_db": "Extrair textos .DB",

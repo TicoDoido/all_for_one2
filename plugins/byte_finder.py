@@ -182,7 +182,7 @@ def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
             {"name": "folder",     "label": t("folder"),        "type": "folder"},
             {"name": "recursive",  "label": t("subfolders"),    "type": "dropdown", "values": [t("yes"), t("no")], "default": t("yes")},
             {"name": "extensions", "label": t("extensions"),    "type": "text",     "default": "*.*"},
-            {"name": "encoding",   "label": t("encoding"),      "type": "dropdown", "values": ["utf-8", "latin-1", "utf-16le", "utf-16be", "shift-jis"], "default": "utf-8"},
+            {"name": "encoding",   "label": t("encoding"),      "type": "dropdown", "values": ["utf-8","cp1252", "latin-1", "utf-16le", "utf-16be", "shift-jis"], "default": "utf-8"},
             {"name": "text",       "label": t("text_patterns"), "type": "text"},
             {"name": "hex",        "label": t("hex_patterns"),  "type": "text"},
         ],

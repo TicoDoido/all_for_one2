@@ -23,6 +23,8 @@ MODULES = [
     "aplib",
     "lzss_codec",
     "refpack_cy",
+    "huffman",
+    "prs",
 ]
 
 ext_modules = [
