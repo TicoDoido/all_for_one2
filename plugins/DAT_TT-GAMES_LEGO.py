@@ -152,6 +152,11 @@ def align_up(x, a):
     return (x + (a - 1)) & ~(a - 1)
 
 def parse_old_format_names(data, INFO_OFF, FILES, name_field_size):
+    """
+    'data' aqui é apenas o BLOCO DE ÍNDICE (info_data), já lido fisicamente
+    do disco (INFO_OFF: INFO_OFF+INFO_SIZE) - não o arquivo .DAT inteiro.
+    Por isso INFO_OFF passado por quem chama deve ser 0 (offset relativo).
+    """
     names_offset_table = INFO_OFF + 8 + FILES * 16
     NAMES = struct.unpack_from("<I", data, names_offset_table)[0]
     name_info_offset = names_offset_table + 4
@@ -199,94 +204,124 @@ def parse_old_format_names(data, INFO_OFF, FILES, name_field_size):
 
     return names_list
 
+COPY_CHUNK_SIZE = 1024 * 1024  # 1 MB por leitura física
+
+
+def copy_file_chunk(src_file, dst_file, offset, size, chunk_size=COPY_CHUNK_SIZE):
+    """
+    Copia 'size' bytes do arquivo de origem (a partir de 'offset') para o
+    destino, lendo em pedaços (chunks) fisicamente do disco, sem nunca
+    carregar o arquivo inteiro (ou mesmo o arquivo inteiro do item) de
+    uma vez na memória.
+    """
+    src_file.seek(offset)
+    remaining = size
+    while remaining > 0:
+        to_read = min(chunk_size, remaining)
+        chunk = src_file.read(to_read)
+        if not chunk:
+            break  # fim inesperado do arquivo
+        dst_file.write(chunk)
+        remaining -= len(chunk)
+
+
 def _extract_dat(filepath: Path):
     """Extrai arquivos do .dat selecionado."""
     logger(t("processing", name=filepath.name), color=COLOR_LOG_YELLOW)
-    
+
     with open(filepath, "rb") as f:
-        data = f.read()
-
-    try:
-        INFO_OFF, INFO_SIZE = struct.unpack_from("<II", data, 0)
-    except struct.error:
-        logger(t("log_parse_error_short"), color=COLOR_LOG_RED)
-        return
-
-    if INFO_OFF & 0x80000000:
-        INFO_OFF ^= 0xFFFFFFFF
-        INFO_OFF <<= 8
-        INFO_OFF += 0x100
-
-    try:
-        version_type1 = struct.unpack_from("<I", data, INFO_OFF)[0]
-    except Exception:
-        logger(t("log_info_off_invalid"), color=COLOR_LOG_RED)
-        return
-
-    version_str = version_type1.to_bytes(4, 'little').decode('ascii', errors='ignore')
-    if version_str in ['4CC.', '.CC4']:
-        logger(t("log_unsupported_new_format"), color=COLOR_LOG_RED)
-        return
-
-    try:
-        format_byte_order = struct.unpack_from("<I", data, INFO_OFF)[0]
-        FILES = struct.unpack_from("<I", data, INFO_OFF + 4)[0]
-    except Exception:
-        logger(t("log_failed_old_header"), color=COLOR_LOG_RED)
-        return
-
-    name_field_size = 12 if format_byte_order <= -5 else 8
-
-    files_info = []
-    for i in range(FILES):
-        entry_off = INFO_OFF + 8 + i * 16
+        # Lê só os 8 bytes do header (INFO_OFF/INFO_SIZE) - leitura física mínima
+        f.seek(0)
+        header = f.read(8)
         try:
-            OFFSET_raw, ZSIZE, SIZE = struct.unpack_from("<III", data, entry_off)
-        except Exception:
-            logger(t("log_entry_invalid", i=i), color=COLOR_LOG_RED)
+            INFO_OFF, INFO_SIZE = struct.unpack("<II", header)
+        except struct.error:
+            logger(t("log_parse_error_short"), color=COLOR_LOG_RED)
             return
-        OFFSET = OFFSET_raw << 8
-        PACKED = data[entry_off + 12]
-        files_info.append({
-            "INDEX": i,
-            "ENTRY_OFF": entry_off,
-            "OFFSET": OFFSET,
-            "ZSIZE": ZSIZE,
-            "SIZE": SIZE,
-            "PACKED": PACKED
-        })
 
-    names_list = parse_old_format_names(data, INFO_OFF, FILES, name_field_size)
+        if INFO_OFF & 0x80000000:
+            INFO_OFF ^= 0xFFFFFFFF
+            INFO_OFF <<= 8
+            INFO_OFF += 0x100
 
-    base_dir = filepath.parent
-    dat_name = filepath.stem
-    extracted_folder = base_dir / f"{dat_name}_extracted"
-    extracted_folder.mkdir(parents=True, exist_ok=True)
+        # Lê fisicamente APENAS o bloco de índice (INFO_OFF -> INFO_OFF+INFO_SIZE).
+        # Esse bloco contém apenas metadados (entradas + nomes), não os dados
+        # reais dos arquivos, então é seguro/pequeno mantê-lo em memória.
+        f.seek(INFO_OFF)
+        info_data = f.read(INFO_SIZE)
 
-    json_path = base_dir / f"{dat_name}.json"
+        try:
+            version_type1 = struct.unpack_from("<I", info_data, 0)[0]
+        except Exception:
+            logger(t("log_info_off_invalid"), color=COLOR_LOG_RED)
+            return
 
-    logger(t("extracting_to", path=str(extracted_folder)), color=COLOR_LOG_YELLOW)
+        version_str = version_type1.to_bytes(4, 'little').decode('ascii', errors='ignore')
+        if version_str in ['4CC.', '.CC4']:
+            logger(t("log_unsupported_new_format"), color=COLOR_LOG_RED)
+            return
 
-    extracted_data = []
-    for i, entry in enumerate(files_info):
-        filename = names_list[i].lstrip("\\").replace("\\", os.sep).upper()
-        logger(t("log_extracting", filename=filename), color=COLOR_LOG_YELLOW)
-        file_data = data[entry['OFFSET']:entry['OFFSET'] + entry['ZSIZE']]
-        out_path = extracted_folder / filename
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "wb") as f_out:
-            f_out.write(file_data)
+        try:
+            format_byte_order = struct.unpack_from("<I", info_data, 0)[0]
+            FILES = struct.unpack_from("<I", info_data, 4)[0]
+        except Exception:
+            logger(t("log_failed_old_header"), color=COLOR_LOG_RED)
+            return
 
-        extracted_data.append({
-            "INDEX": entry["INDEX"],
-            "ENTRY_OFF": entry["ENTRY_OFF"],
-            "OFFSET": entry["OFFSET"],
-            "ZSIZE": entry["ZSIZE"],
-            "SIZE": entry["SIZE"],
-            "PACKED": entry["PACKED"],
-            "FILENAME": filename
-        })
+        name_field_size = 12 if format_byte_order <= -5 else 8
 
+        files_info = []
+        for i in range(FILES):
+            entry_off = 8 + i * 16  # offset relativo dentro de info_data
+            try:
+                OFFSET_raw, ZSIZE, SIZE = struct.unpack_from("<III", info_data, entry_off)
+            except Exception:
+                logger(t("log_entry_invalid", i=i), color=COLOR_LOG_RED)
+                return
+            OFFSET = OFFSET_raw << 8
+            PACKED = info_data[entry_off + 12]
+            files_info.append({
+                "INDEX": i,
+                "ENTRY_OFF": INFO_OFF + entry_off,  # mantém absoluto p/ o JSON/rebuild
+                "OFFSET": OFFSET,
+                "ZSIZE": ZSIZE,
+                "SIZE": SIZE,
+                "PACKED": PACKED
+            })
+
+        names_list = parse_old_format_names(info_data, 0, FILES, name_field_size)
+
+        base_dir = filepath.parent
+        dat_name = filepath.stem
+        extracted_folder = base_dir / f"{dat_name}_extracted"
+        extracted_folder.mkdir(parents=True, exist_ok=True)
+
+        json_path = base_dir / f"{dat_name}.json"
+
+        logger(t("extracting_to", path=str(extracted_folder)), color=COLOR_LOG_YELLOW)
+
+        extracted_data = []
+        for i, entry in enumerate(files_info):
+            filename = names_list[i].lstrip("\\").replace("\\", os.sep).upper()
+            logger(t("log_extracting", filename=filename), color=COLOR_LOG_YELLOW)
+            out_path = extracted_folder / filename
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            # Lê o arquivo diretamente do .DAT em pedaços (seek + read),
+            # e escreve direto no destino - sem carregar tudo em memória.
+            with open(out_path, "wb") as f_out:
+                copy_file_chunk(f, f_out, entry['OFFSET'], entry['ZSIZE'])
+
+            extracted_data.append({
+                "INDEX": entry["INDEX"],
+                "ENTRY_OFF": entry["ENTRY_OFF"],
+                "OFFSET": entry["OFFSET"],
+                "ZSIZE": entry["ZSIZE"],
+                "SIZE": entry["SIZE"],
+                "PACKED": entry["PACKED"],
+                "FILENAME": filename
+            })
+
+    # f (o .DAT original) já foi fechado ao sair do 'with' acima
     with open(json_path, "w", encoding="utf-8") as jf:
         json.dump(extracted_data, jf, indent=4, ensure_ascii=False)
 
