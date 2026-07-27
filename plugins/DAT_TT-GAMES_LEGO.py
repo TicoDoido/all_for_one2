@@ -5,6 +5,12 @@ import json
 from pathlib import Path
 import flet as ft
 
+try:
+    from DECOMP_CODE import LZ2K
+    LZ2K_AVAILABLE = True
+except ImportError:
+    LZ2K_AVAILABLE = False
+
 # ==============================================================================
 # CONFIGURAÇÕES E TRADUÇÕES
 # ==============================================================================
@@ -43,7 +49,17 @@ PLUGIN_TRANSLATIONS = {
         "cancelled": "Seleção cancelada.",
         "processing": "Processando: {name}...",
         "extracting_to": "Extraindo para: {path}",
-        "recreating_to": "Reconstruindo a partir de: {path}"
+        "recreating_to": "Reconstruindo a partir de: {path}",
+        "decompress_file": "Descomprimir arquivo (LZ2K)",
+        "select_decompress_file": "Selecione o arquivo para descomprimir",
+        "log_decompressing": "DESCOMPRIMINDO: {filename}",
+        "log_decompress_chunk": "Chunk em {offset}: {zsize} -> {size} bytes",
+        "log_decompressed_saved": "Arquivo descomprimido salvo em: {path}",
+        "message_decompress_complete": "Arquivo descomprimido salvo em:\n{path}",
+        "message_lz2k_module_missing": "Módulo LZ2K (LZ2K.pyd) não encontrado.\nColoque o arquivo LZ2K.pyd na mesma pasta deste plugin.",
+        "error_not_lz2k": "O arquivo selecionado não começa com a assinatura 'LZ2K'.",
+        "error_unsupported_chunk_sign": "Assinatura de chunk não suportada '{sign}' no offset {offset} (só LZ2K é suportado por este botão).",
+        "decompress_error_title": "Erro ao descomprimir"
     },
     "en_US": {
         "plugin_name": "DAT TT Games TOOL",
@@ -78,7 +94,17 @@ PLUGIN_TRANSLATIONS = {
         "cancelled": "Selection cancelled.",
         "processing": "Processing: {name}...",
         "extracting_to": "Extracting to: {path}",
-        "recreating_to": "Rebuilding from: {path}"
+        "recreating_to": "Rebuilding from: {path}",
+        "decompress_file": "Decompress file (LZ2K)",
+        "select_decompress_file": "Select the file to decompress",
+        "log_decompressing": "DECOMPRESSING: {filename}",
+        "log_decompress_chunk": "Chunk at {offset}: {zsize} -> {size} bytes",
+        "log_decompressed_saved": "Decompressed file saved at: {path}",
+        "message_decompress_complete": "Decompressed file saved at:\n{path}",
+        "message_lz2k_module_missing": "LZ2K module (LZ2K.pyd) not found.\nPlace the LZ2K.pyd file in the same folder as this plugin.",
+        "error_not_lz2k": "The selected file does not start with the 'LZ2K' signature.",
+        "error_unsupported_chunk_sign": "Unsupported chunk signature '{sign}' at offset {offset} (only LZ2K is supported by this button).",
+        "decompress_error_title": "Error while decompressing"
     },
     "es_ES": {
         "plugin_name": "DAT TT Games TOOL",
@@ -113,7 +139,17 @@ PLUGIN_TRANSLATIONS = {
         "cancelled": "Selección cancelada.",
         "processing": "Procesando: {name}...",
         "extracting_to": "Extrayendo a: {path}",
-        "recreating_to": "Reconstruyendo desde: {path}"
+        "recreating_to": "Reconstruyendo desde: {path}",
+        "decompress_file": "Descomprimir archivo (LZ2K)",
+        "select_decompress_file": "Seleccione el archivo para descomprimir",
+        "log_decompressing": "DESCOMPRIMIENDO: {filename}",
+        "log_decompress_chunk": "Chunk en {offset}: {zsize} -> {size} bytes",
+        "log_decompressed_saved": "Archivo descomprimido guardado en: {path}",
+        "message_decompress_complete": "Archivo descomprimido guardado en:\n{path}",
+        "message_lz2k_module_missing": "Módulo LZ2K (LZ2K.pyd) no encontrado.\nColoque el archivo LZ2K.pyd en la misma carpeta que este plugin.",
+        "error_not_lz2k": "El archivo seleccionado no comienza con la firma 'LZ2K'.",
+        "error_unsupported_chunk_sign": "Firma de chunk no soportada '{sign}' en el offset {offset} (solo LZ2K es soportado por este botón).",
+        "decompress_error_title": "Error al descomprimir"
     }
 }
 
@@ -141,6 +177,9 @@ fp_extract = ft.FilePicker(
 fp_reinsert = ft.FilePicker(
     on_result=lambda e: _do_rebuild(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
 )
+fp_decompress = ft.FilePicker(
+    on_result=lambda e: _decompress_file(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
+)
 
 # ==============================================================================
 # CÓDIGO PRINCIPAL (LÓGICA ADAPTADA PARA USAR LOGGER)
@@ -152,11 +191,11 @@ def align_up(x, a):
     return (x + (a - 1)) & ~(a - 1)
 
 def parse_old_format_names(data, INFO_OFF, FILES, name_field_size):
-    """
-    'data' aqui é apenas o BLOCO DE ÍNDICE (info_data), já lido fisicamente
-    do disco (INFO_OFF: INFO_OFF+INFO_SIZE) - não o arquivo .DAT inteiro.
-    Por isso INFO_OFF passado por quem chama deve ser 0 (offset relativo).
-    """
+    
+    #'data' aqui é apenas o BLOCO DE ÍNDICE (info_data), já lido fisicamente
+    # do disco (INFO_OFF: INFO_OFF+INFO_SIZE) - não o arquivo .DAT inteiro.
+    # Por isso INFO_OFF passado por quem chama deve ser 0 (offset relativo).
+
     names_offset_table = INFO_OFF + 8 + FILES * 16
     NAMES = struct.unpack_from("<I", data, names_offset_table)[0]
     name_info_offset = names_offset_table + 4
@@ -223,6 +262,50 @@ def copy_file_chunk(src_file, dst_file, offset, size, chunk_size=COPY_CHUNK_SIZE
             break  # fim inesperado do arquivo
         dst_file.write(chunk)
         remaining -= len(chunk)
+
+
+def unpack_lz2k_container(data: bytes) -> bytes:
+    """
+    Descompacta um arquivo/bloco no formato container usado pelos jogos
+    TT Games (LEGO). O container é uma sequência de "chunks", cada um com
+    o seguinte cabeçalho de 12 bytes:
+
+        4 bytes  -> assinatura ("LZ2K")
+        4 bytes  -> CHUNK_SIZE  (tamanho do chunk já descomprimido, <I)
+        4 bytes  -> CHUNK_ZSIZE (tamanho do chunk comprimido em disco, <I)
+
+    seguido de CHUNK_ZSIZE bytes de dados. Se CHUNK_ZSIZE == CHUNK_SIZE o
+    chunk está armazenado sem compressão (copiado direto); caso contrário
+    os CHUNK_ZSIZE bytes são o stream comprimido LZ2K, que ao ser
+    descomprimido produz exatamente CHUNK_SIZE bytes.
+    """
+    if not LZ2K_AVAILABLE:
+        raise RuntimeError(t("message_lz2k_module_missing"))
+
+    total_size = len(data)
+    pos = 0
+    out = bytearray()
+
+    while pos < total_size:
+        sign = bytes(data[pos:pos + 4])
+        if sign != b"LZ2K":
+            raise ValueError(t("error_unsupported_chunk_sign", sign=sign, offset=pos))
+
+        chunk_size, chunk_zsize = struct.unpack_from("<II", data, pos + 4)
+        chunk_data_start = pos + 12
+        chunk_data = data[chunk_data_start:chunk_data_start + chunk_zsize]
+
+        if chunk_zsize == chunk_size:
+            # chunk armazenado sem compressão
+            out += chunk_data
+        else:
+            dst = bytearray(chunk_size)
+            LZ2K.decompress(chunk_data, dst)
+            out += dst
+
+        pos = chunk_data_start + chunk_zsize
+
+    return bytes(out)
 
 
 def _extract_dat(filepath: Path):
@@ -456,6 +539,45 @@ def _do_rebuild(json_path: Path):
         logger(t("rebuild_error_title") + ": " + str(e), color=COLOR_LOG_RED)
 
 
+def _decompress_file(filepath: Path):
+    """Descomprime um arquivo LZ2K isolado e salva o resultado na mesma pasta."""
+    logger(t("processing", name=filepath.name), color=COLOR_LOG_YELLOW)
+
+    if not LZ2K_AVAILABLE:
+        logger(t("message_lz2k_module_missing"), color=COLOR_LOG_RED)
+        return
+
+    try:
+        with open(filepath, "rb") as f:
+            data = f.read()
+    except Exception as e:
+        logger(t("decompress_error_title") + ": " + str(e), color=COLOR_LOG_RED)
+        return
+
+    if not data.startswith(b"LZ2K"):
+        logger(t("error_not_lz2k"), color=COLOR_LOG_RED)
+        return
+
+    logger(t("log_decompressing", filename=filepath.name), color=COLOR_LOG_YELLOW)
+
+    try:
+        decompressed = unpack_lz2k_container(data)
+    except Exception as e:
+        logger(t("decompress_error_title") + ": " + str(e), color=COLOR_LOG_RED)
+        return
+
+    out_path = filepath.with_name(f"{filepath.stem}{filepath.suffix}")
+
+    try:
+        with open(out_path, "wb") as f_out:
+            f_out.write(decompressed)
+    except Exception as e:
+        logger(t("decompress_error_title") + ": " + str(e), color=COLOR_LOG_RED)
+        return
+
+    logger(t("log_decompressed_saved", path=str(out_path)), color=COLOR_LOG_GREEN)
+
+
 # ==============================================================================
 # AÇÕES DOS COMANDOS (CHAMAM OS FILEPICKERS)
 # ==============================================================================
@@ -472,6 +594,11 @@ def action_reinsert():
         dialog_title=t("select_json_file")
     )
 
+def action_decompress():
+    fp_decompress.pick_files(
+        dialog_title=t("select_decompress_file")
+    )
+
 
 # ==============================================================================
 # ENTRY POINT (REGISTRO)
@@ -484,7 +611,7 @@ def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
     host_page = page
 
     if host_page:
-        host_page.overlay.extend([fp_extract, fp_reinsert])
+        host_page.overlay.extend([fp_extract, fp_reinsert, fp_decompress])
         host_page.update()
 
     return {
@@ -493,5 +620,6 @@ def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
         "commands": [
             {"label": t("extract_file"), "action": action_extract},
             {"label": t("reinsert_file"), "action": action_reinsert},
+            {"label": t("decompress_file"), "action": action_decompress},
         ]
     }

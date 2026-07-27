@@ -25,6 +25,7 @@ MODULES = [
     "refpack_cy",
     "huffman",
     "prs",
+    "LZ2K",
 ]
 
 ext_modules = [
