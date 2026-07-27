@@ -268,11 +268,25 @@ def read_u16_le(f):
     return struct.unpack('<H', data)[0]
 
 def read_sized_string(b):
-    b = b.split(b'\x00', 1)[0]
+    
+    # Primeiro, verifica se tem bytes nulos
+    if b'\x00' in b:
+        b = b.split(b'\x00', 1)[0]
+    
     try:
-        return b.decode('utf-8', errors='replace')
+        # Decodifica para string
+        nome = b.decode('utf-8', errors='replace')
     except Exception:
-        return b.decode('latin1', errors='replace')
+        nome = b.decode('latin1', errors='replace')
+    
+    # Verifica se tem ponto e pega a primeira parte
+    if '.' in nome:
+        nome = nome.split('.', 1)[0]
+    
+    # Adiciona .DDS
+    nome = nome + '.DDS'
+    
+    return nome
 
 # ==============================================================================
 # CLASSE XPC EXTRACTOR (adaptada para usar logger)
@@ -338,7 +352,7 @@ class XPCExtractor:
                         data = zlib.decompress(comp_data)
                     except zlib.error:
                         logger(t("log_decompress_error", idx=idx, name=e['name']), color=COLOR_LOG_YELLOW)
-                        out_path = os.path.join(out_dir, e['name'] + ".z")
+                        out_path = os.path.join(out_dir, e['name'])
                         self._safe_write(out_path, comp_data)
                         continue
 
