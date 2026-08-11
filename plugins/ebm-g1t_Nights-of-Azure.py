@@ -15,7 +15,7 @@ host_page = None
 # -----------------------------
 PLUGIN_TRANSLATIONS = {
     "pt_BR": {
-        "plugin_name": "EBM & G1T Tool - Nights of Azure",
+        "plugin_name": "EBM/G1T Tool - Nights of Azure",
         "plugin_description": "Extrai/importa textos EBM e exporta/importa imagens G1T.",
         "extract_file": "Extrair textos (EBM → TXT)",
         "import_file": "Importar TXT → EBM (reconstruir)",

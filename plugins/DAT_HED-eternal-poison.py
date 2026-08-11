@@ -41,7 +41,7 @@ PLUGIN_TRANSLATIONS = {
     },
     "en_US": {
         "plugin_name": "DAT/HED/DB Eternal Poison (PS2)",
-        "plugin_description": "Extracts and repacks DAT/HED container files from Eternal Poison (PS2)",
+        "plugin_description": "Extracts and repacks DAT/HED container files from Eternal Poison/Cowboy Bebop - Tsuitou no Yakyoku (PS2)",
         "extract_file": "Extract .DAT/.HED files",
         "rebuild_file": "Repack .DAT/.HED files",
         "extract_db": "Extract .DB texts",
@@ -71,7 +71,7 @@ PLUGIN_TRANSLATIONS = {
     },
     "es_ES": {
         "plugin_name": "DAT/HED/DB Eternal Poison (PS2)",
-        "plugin_description": "Extrae y reempaqueta archivos contenedores DAT/HED de Eternal Poison (PS2)",
+        "plugin_description": "Extrae y reempaqueta archivos contenedores DAT/HED de Eternal Poison/Cowboy Bebop - Tsuitou no Yakyoku (PS2)",
         "extract_file": "Extraer archivos .DAT/.HED",
         "rebuild_file": "Reempaquetar archivos .DAT/.HED",
         "extract_db": "Extraer textos .DB",

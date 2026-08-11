@@ -11,7 +11,7 @@ import flet as ft
 
 PLUGIN_TRANSLATIONS = {
     "pt_BR": {
-        "plugin_name": "FILES|TEX|P3TEX... (Eternal Sonata PS3)",
+        "plugin_name": "FILES/TEX/P3TEX... (Eternal Sonata PS3)",
         "plugin_description": "Extrai e recria textos de arquivos do jogo Eternal Sonata",
         "extract_file": "Extrair Arquivo(.FILES)",
         "import_files": "Reimportar Arquivos(.FILES)",

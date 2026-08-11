@@ -186,13 +186,13 @@ def _extract_files(file_path: Path):
                 pointers.append((file_offset, file_size))
 
             names = []
-            if file_version == b'\x02\x01\x01\x01':
+            if file_version in [b'\x02\x01\x00\x01', b'\x02\x01\x01\x01']:
                 file.seek(names_offset + 5)
             else:
                 file.seek(names_offset + 8)
             
             for _ in range(total_items):
-                if file_version == b'\x02\x01\x01\x01':
+                if file_version in [b'\x02\x01\x00\x01', b'\x02\x01\x01\x01']:
                     file.seek(15, 1)
                 else:
                     file.seek(12, 1)

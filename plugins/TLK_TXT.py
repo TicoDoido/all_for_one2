@@ -22,7 +22,7 @@ import flet as ft
 
 PLUGIN_TRANSLATIONS = {
     "pt_BR": {
-        "plugin_name": "Dragon Age TLK Tools",
+        "plugin_name": "TLK Tools Dragon Age",
         "plugin_description": "Extrai e reconstrói textos de arquivos TLK (Dragon Age / GFF)",
         "extract_file": "Extrair (TLK → TXT/XML)",
         "rebuild_file": "Recriar (TXT/XML → TLK)",
@@ -38,7 +38,7 @@ PLUGIN_TRANSLATIONS = {
         "select_txt": "Selecione o arquivo .txt/.xml"
     },
     "en_US": {
-        "plugin_name": "Dragon Age TLK Tools",
+        "plugin_name": "TLK Tools Dragon Age",
         "plugin_description": "Extracts and reconstructs text from TLK (GFF) files",
         "extract_file": "Extract (TLK → TXT/XML)",
         "rebuild_file": "Rebuild (TXT/XML → TLK)",

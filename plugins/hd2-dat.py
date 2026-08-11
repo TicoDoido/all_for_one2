@@ -10,7 +10,7 @@ from pathlib import Path
 
 PLUGIN_TRANSLATIONS = {
     "pt_BR": {
-        "plugin_name": "Extrator DAT+HD2 (Dark Cloud PS2)",
+        "plugin_name": "DAT+HD2 Extrator (Dark Cloud PS2)",
         "plugin_description": "Extrai pares .hd2 + .dat de jogos PS2 (Dark Cloud)",
         "extract_cmd": "Extrair DAT+HD2",
         "select_hd2": "Selecione o arquivo .hd2",

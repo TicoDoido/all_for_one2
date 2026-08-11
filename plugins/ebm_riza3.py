@@ -12,7 +12,7 @@ import flet as ft
 
 PLUGIN_TRANSLATIONS = {
     "pt_BR": {
-        "plugin_name": "EBM-GZ - Atelier Ryza 3",
+        "plugin_name": "EBM/GZ - Atelier Ryza 3",
         "plugin_description": "Extrai e importa textos de arquivos EBM (Atelier Ryza 3)",
         "extract_text": "Extrair texto",
         "import_text": "Importar texto",

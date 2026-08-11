@@ -38,7 +38,7 @@ PLUGIN_TRANSLATIONS = {
         "cancelled": "Selection cancelled."
     },
     "es_ES": {
-        "plugin_name": "Herramientas XUS (Xbox 360)",
+        "plugin_name": "XUS Tools (Xbox 360)",
         "plugin_description": "Convierte .xus a XML y viceversa.",
         "extract_text": "Extraer XUS -> XML",
         "rebuild_file": "Reconstruir XML -> XUS",

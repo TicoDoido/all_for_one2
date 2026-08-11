@@ -18,7 +18,7 @@ HEADER_SIZE = 0x80
 # ==============================================================================
 STRINGS = {
     "pt_BR": {
-        "name": "Coraline (Wii) - DXT ↔ PNG",
+        "name": "DXT ↔ PNG - Coraline (Wii)",
         "desc": "Extrai texturas .dxt para .png e injeta .png de volta no formato .dxt.",
         "folder": "Pasta dos Arquivos",
         "subfolders": "Incluir Subpastas",
@@ -38,7 +38,7 @@ STRINGS = {
         "finished": "Processo concluído com sucesso!"
     },
     "en_US": {
-        "name": "Coraline (Wii) - DXT ↔ PNG",
+        "name": "DXT ↔ PNG - Coraline (Wii)",
         "desc": "Unpack .dxt textures to .png and pack .png back to .dxt format.",
         "folder": "Files Folder",
         "subfolders": "Include Subfolders",
@@ -58,7 +58,7 @@ STRINGS = {
         "finished": "Process finished successfully!"
     },
     "es_ES": {
-        "name": "Coraline (Wii) - DXT ↔ PNG",
+        "name": "DXT ↔ PNG - Coraline (Wii)",
         "desc": "Extrae texturas .dxt a .png e inyecta .png de vuelta al formato .dxt.",
         "folder": "Carpeta de Archivos",
         "subfolders": "Incluir Subcarpetas",

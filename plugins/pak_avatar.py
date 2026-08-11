@@ -10,7 +10,7 @@ import flet as ft
 
 PLUGIN_TRANSLATIONS = {
     "pt_BR": {
-        "plugin_name": "PAK|STR - Avatar The Last Airbender (PS2)",
+        "plugin_name": "PAK/STR - Avatar The Last Airbender (PS2)",
         "plugin_description": "Extrai e recria arquivos PAK|STR dos jogos Avatar The Last Airbender/The Burning Earth/Into the Inferno para PS2",
         "extract_file": "Extrair Arquivo",
         "rebuild_file": "Recriar Arquivo",
@@ -39,7 +39,7 @@ PLUGIN_TRANSLATIONS = {
         "operation_completed": "Operação concluída."
     },
     "en_US": {
-        "plugin_name": "PAK|STR - Avatar The Last Airbender (PS2)",
+        "plugin_name": "PAK/STR - Avatar The Last Airbender (PS2)",
         "plugin_description": "Extracts and rebuilds PAK|STR files from Avatar The Last Airbender/The Burning Earth/Into the Inferno PS2 games",
         "extract_file": "Extract File",
         "rebuild_file": "Rebuild File",
@@ -68,7 +68,7 @@ PLUGIN_TRANSLATIONS = {
         "operation_completed": "Operation completed."
     },
     "es_ES": {
-        "plugin_name": "PAK|STR - Avatar The Last Airbender (PS2)",
+        "plugin_name": "PAK/STR - Avatar The Last Airbender (PS2)",
         "plugin_description": "Extrae y reconstruye archivos PAK|STR de los juegos Avatar The Last Airbender/The Burning Earth/Into the Inferno para PS2",
         "extract_file": "Extraer Archivo",
         "rebuild_file": "Reconstruir Archivo",

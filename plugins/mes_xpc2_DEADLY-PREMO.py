@@ -37,7 +37,7 @@ import flet as ft
 
 PLUGIN_TRANSLATIONS = {
     "pt_BR": {
-        "plugin_name": "MES|XPC Deadly Premonition Director's Cut",
+        "plugin_name": "MES/XPC Deadly Premonition Director's Cut",
         "plugin_description": "Extrai e reinsere textos de arquivos .MES\nExtrai e reinsere arquivos em containers XPC2 (zlib)",
         "extract_mes": "Extrair .MES",
         "reinsert_mes": "Remontar .MES a partir do .TXT",
@@ -91,7 +91,7 @@ PLUGIN_TRANSLATIONS = {
         "operation_completed": "Operação concluída."
     },
     "en_US": {
-        "plugin_name": "MES Deadly Premonition Director's Cut Extractor|Reinserter",
+        "plugin_name": "MES/XPC Deadly Premonition Director's Cut Extractor|Reinserter",
         "plugin_description": "Extracts and reinserts texts from .MES files\nExtracts and reinserts files in XPC2 containers (zlib)",
         "extract_mes": "Extract .MES",
         "reinsert_mes": "Reinsert .MES from .TXT",
@@ -145,7 +145,7 @@ PLUGIN_TRANSLATIONS = {
         "operation_completed": "Operation completed."
     },
     "es_ES": {
-        "plugin_name": "MES Deadly Premonition Director's Cut Extractor|Reinserter",
+        "plugin_name": "MES/XPC Deadly Premonition Director's Cut Extractor|Reinserter",
         "plugin_description": "Extrae y reinscribe textos de archivos .MES\nExtrae y reingresa archivos en contenedores XPC2 (zlib)",
         "extract_mes": "Extraer .MES",
         "reinsert_mes": "Reinsertar .MES desde .TXT",
@@ -231,13 +231,18 @@ fp_extract_xpc = ft.FilePicker(
     on_result=lambda e: _extract_xpc(Path(e.files[0].path)) if e.files else logger(t("cancelled"), color=COLOR_LOG_YELLOW)
 )
 
-# Para reinsert XPC: primeiro seleciona o arquivo, depois a pasta
+# Para reinsert XPC: seleciona o arquivo e reconhece a pasta automaticamente se existir no mesmo local
 _xpc_file_to_reinsert = None  # variável temporária
 def _on_xpc_file_selected(e):
     global _xpc_file_to_reinsert
     if e.files:
         _xpc_file_to_reinsert = Path(e.files[0].path)
-        fp_reinsert_xpc_folder.get_directory_path(dialog_title=t("select_folder_files"))
+        auto_folder = _xpc_file_to_reinsert.parent / _xpc_file_to_reinsert.stem
+        if auto_folder.is_dir():
+            _reinsert_xpc(_xpc_file_to_reinsert, auto_folder)
+            _xpc_file_to_reinsert = None
+        else:
+            fp_reinsert_xpc_folder.get_directory_path(dialog_title=t("select_folder_files"))
     else:
         logger(t("cancelled"), color=COLOR_LOG_YELLOW)
 
