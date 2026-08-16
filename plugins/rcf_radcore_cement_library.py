@@ -204,6 +204,9 @@ def _extract_files(file_path: Path):
                 except UnicodeDecodeError:
                     names.append(f"unknown_{len(names)}")
 
+            if file_version == b'\x02\x01\x00\x01':
+                pointers.sort(key=lambda x: x[0])
+
             for i, (file_offset, file_size) in enumerate(pointers):
                 if i >= len(names):
                     break
@@ -282,25 +285,190 @@ def _recreate_rcf(original_file_path: Path, txt_names_path: Path):
     extracted_files_directory = base_directory / base_filename
 
     if not extracted_files_directory.exists():
-        logger(t("folder_not_found", folder=str(extracted_files_directory)), color=COLOR_LOG_RED)
+        logger(
+            t("folder_not_found", folder=str(extracted_files_directory)),
+            color=COLOR_LOG_RED
+        )
         return
 
     if not txt_names_path.exists():
-        logger(t("file_not_found", file=str(txt_names_path)), color=COLOR_LOG_RED)
+        logger(
+            t("file_not_found", file=str(txt_names_path)),
+            color=COLOR_LOG_RED
+        )
         return
 
+    # ==========================================================================
+    # LER INFORMAÇÕES DO RCF ORIGINAL
+    # ==========================================================================
+
+    original_pointer_order = []
+    pointers_offset = None
+    total_items = 0
+
     with open(original_file_path, 'rb') as original_file:
+
         original_file.seek(32)
         file_version = original_file.read(4)
 
+        # ======================================================================
+        # RCF 2.1
+        # ======================================================================
+
         if file_version in [b'\x02\x01\x00\x01', b'\x02\x01\x01\x01']:
+
             endian_format = '<' if file_version == b'\x02\x01\x00\x01' else '>'
-            logger(t("version_21_le") if endian_format == '<' else t("version_21_be"), color=COLOR_LOG_YELLOW)
+
+            logger(
+                t("version_21_le")
+                if endian_format == '<'
+                else t("version_21_be"),
+                color=COLOR_LOG_YELLOW
+            )
+
+            # ------------------------------------------------------------------
+            # Lê o offset da tabela de ponteiros
+            # ------------------------------------------------------------------
+
+            original_file.seek(36)
+
+            pointers_offset = struct.unpack(
+                f'{endian_format}I',
+                original_file.read(4)
+            )[0]
+
+            # ------------------------------------------------------------------
+            # Informações usadas para calcular o tamanho do header
+            # ------------------------------------------------------------------
 
             original_file.seek(44)
-            offset_value = struct.unpack(f'{endian_format}I', original_file.read(4))[0]
+
+            offset_value = struct.unpack(
+                f'{endian_format}I',
+                original_file.read(4)
+            )[0]
+
             original_file.seek(48)
-            size_value = struct.unpack(f'{endian_format}I', original_file.read(4))[0]
+
+            size_value = struct.unpack(
+                f'{endian_format}I',
+                original_file.read(4)
+            )[0]
+
+            # ------------------------------------------------------------------
+            # Quantidade de arquivos
+            # ------------------------------------------------------------------
+
+            original_file.seek(56)
+
+            total_items = struct.unpack(
+                f'{endian_format}I',
+                original_file.read(4)
+            )[0]
+
+            # ------------------------------------------------------------------
+            # Lê a tabela ORIGINAL de ponteiros.
+            #
+            # Guardamos:
+            #
+            #   (
+            #       índice_original_da_tabela,
+            #       offset_original,
+            #       tamanho_original
+            #   )
+            #
+            # Isso é necessário porque o extrator reorganiza os ponteiros
+            # da versão 02 01 00 01 antes de associá-los aos nomes.
+            # ------------------------------------------------------------------
+
+            original_pointers = []
+
+            original_file.seek(pointers_offset)
+
+            for index in range(total_items):
+
+                # Campo desconhecido / ID
+                original_file.seek(4, os.SEEK_CUR)
+
+                file_offset = struct.unpack(
+                    f'{endian_format}I',
+                    original_file.read(4)
+                )[0]
+
+                file_size = struct.unpack(
+                    f'{endian_format}I',
+                    original_file.read(4)
+                )[0]
+
+                original_pointers.append(
+                    (
+                        index,
+                        file_offset,
+                        file_size
+                    )
+                )
+
+            # ------------------------------------------------------------------
+            # IMPORTANTE:
+            #
+            # Na extração da versão 02 01 00 01 existe:
+            #
+            #     pointers.sort(key=lambda x: x[0])
+            #
+            # Portanto os nomes são associados aos arquivos pela ordem crescente
+            # dos offsets e NÃO pela posição original na tabela.
+            #
+            # Aqui construímos o mapeamento inverso:
+            #
+            # índice do nome -> slot original da tabela
+            #
+            # Exemplo:
+            #
+            # tabela original:
+            #
+            # slot 0 = offset 5000
+            # slot 1 = offset 3000
+            # slot 2 = offset 7000
+            # slot 3 = offset 4000
+            #
+            # depois do sort:
+            #
+            # nome 0 = slot 1
+            # nome 1 = slot 3
+            # nome 2 = slot 0
+            # nome 3 = slot 2
+            #
+            # original_pointer_order:
+            #
+            # [1, 3, 0, 2]
+            # ------------------------------------------------------------------
+
+            if file_version == b'\x02\x01\x00\x01':
+
+                sorted_original_pointers = sorted(
+                    original_pointers,
+                    key=lambda x: x[1]
+                )
+
+                original_pointer_order = [
+                    original_index
+                    for original_index, file_offset, file_size
+                    in sorted_original_pointers
+                ]
+
+            else:
+                # --------------------------------------------------------------
+                # 2.1 Big Endian.
+                #
+                # O extrator NÃO ordena os ponteiros nessa versão.
+                # Portanto a associação nomes -> tabela é direta.
+                # --------------------------------------------------------------
+
+                original_pointer_order = list(range(total_items))
+
+            # ------------------------------------------------------------------
+            # Copia o header original
+            # ------------------------------------------------------------------
 
             header_size = offset_value + size_value
             adjusted_header_size = calculate_padding(header_size)
@@ -308,19 +476,56 @@ def _recreate_rcf(original_file_path: Path, txt_names_path: Path):
             original_file.seek(0)
             header = original_file.read(adjusted_header_size)
 
+        # ======================================================================
+        # RCF 1.2 LITTLE ENDIAN
+        # ======================================================================
+
         elif file_version == b'\x01\x02\x00\x01':
-            logger(t("version_12_le"), color=COLOR_LOG_YELLOW)
+
+            logger(
+                t("version_12_le"),
+                color=COLOR_LOG_YELLOW
+            )
+
             endian_format = '<'
 
             original_file.seek(2048)
-            total_items = struct.unpack('<I', original_file.read(4))[0]
-            names_offset = struct.unpack('<I', original_file.read(4))[0]
+
+            total_items = struct.unpack(
+                '<I',
+                original_file.read(4)
+            )[0]
+
+            names_offset = struct.unpack(
+                '<I',
+                original_file.read(4)
+            )[0]
+
+            # ------------------------------------------------------------------
+            # Na versão 1.2 os ponteiros não são ordenados durante a extração.
+            # A ordem dos nomes corresponde diretamente à tabela.
+            # ------------------------------------------------------------------
+
+            original_pointer_order = list(range(total_items))
+
+            # ------------------------------------------------------------------
+            # Percorre a tabela de nomes para descobrir o fim do header.
+            # ------------------------------------------------------------------
 
             original_file.seek(names_offset + 4)
 
             for _ in range(total_items):
-                original_file.seek(4, os.SEEK_CUR)
-                name_size = struct.unpack('<I', original_file.read(4))[0]
+
+                original_file.seek(
+                    4,
+                    os.SEEK_CUR
+                )
+
+                name_size = struct.unpack(
+                    '<I',
+                    original_file.read(4)
+                )[0]
+
                 original_file.read(name_size)
 
             header_size = original_file.tell()
@@ -329,54 +534,322 @@ def _recreate_rcf(original_file_path: Path, txt_names_path: Path):
             original_file.seek(0)
             header = original_file.read(adjusted_header_size)
 
+        # ======================================================================
+        # VERSÃO NÃO SUPORTADA
+        # ======================================================================
+
         else:
-            logger(t("unsupported_file"), color=COLOR_LOG_RED)
+
+            logger(
+                t("unsupported_file"),
+                color=COLOR_LOG_RED
+            )
+
             return
 
+    # ==========================================================================
+    # LER LISTA DE NOMES
+    # ==========================================================================
+
+    names = []
+
+    with open(txt_names_path, 'r', encoding='utf-8') as txt_names:
+
+        for line in txt_names:
+
+            file_name = line.lstrip("/\\").strip()
+
+            if file_name:
+                names.append(file_name)
+
+    # ==========================================================================
+    # CRIAR NOVO RCF
+    # ==========================================================================
+
     with open(new_rcf_path, 'w+b') as new_rcf:
+
+        # ----------------------------------------------------------------------
+        # Copia o header original primeiro.
+        # ----------------------------------------------------------------------
+
         new_rcf.write(header)
-        pointers = []
+
+        # ----------------------------------------------------------------------
+        # Aqui guardamos:
+        #
+        # (
+        #     índice_do_nome,
+        #     novo_offset,
+        #     novo_tamanho
+        # )
+        #
+        # O índice do nome é importante para podermos aplicar posteriormente
+        # o mapeamento original da tabela.
+        # ----------------------------------------------------------------------
+
+        new_pointers = []
+
         current_position = adjusted_header_size
 
-        with open(txt_names_path, 'r', encoding='utf-8') as txt_names:
-            for line in txt_names:
-                file_name = line.lstrip("/\\").strip()
-                file_path = extracted_files_directory / file_name
+        # ----------------------------------------------------------------------
+        # Escreve os arquivos seguindo EXATAMENTE a ordem da lista TXT.
+        #
+        # Essa é a mesma ordem usada pelo extrator para associar:
+        #
+        # names[i] <-> pointers[i]
+        # ----------------------------------------------------------------------
 
-                if not file_path.exists():
-                    logger(t("file_not_found", file=str(file_path)), color=COLOR_LOG_YELLOW)
-                    continue
+        for name_index, file_name in enumerate(names):
 
-                with open(file_path, 'rb') as f_file:
-                    file_data = f_file.read()
+            file_path = extracted_files_directory / file_name
 
-                original_size = len(file_data)
-                size_with_padding = calculate_padding(original_size)
+            if not file_path.exists():
 
-                new_rcf.write(file_data)
-                new_rcf.write(b'\x00' * (size_with_padding - original_size))
+                logger(
+                    t("file_not_found", file=str(file_path)),
+                    color=COLOR_LOG_YELLOW
+                )
 
-                pointers.append((current_position, original_size))
-                current_position += size_with_padding
+                continue
 
-        new_rcf.seek(32)
-        file_version = new_rcf.read(4)
+            with open(file_path, 'rb') as f_file:
+                file_data = f_file.read()
+
+            original_size = len(file_data)
+
+            size_with_padding = calculate_padding(
+                original_size
+            )
+
+            # ------------------------------------------------------------------
+            # Offset onde este arquivo começa no novo RCF
+            # ------------------------------------------------------------------
+
+            new_file_offset = current_position
+
+            # ------------------------------------------------------------------
+            # Grava os dados
+            # ------------------------------------------------------------------
+
+            new_rcf.write(file_data)
+
+            # ------------------------------------------------------------------
+            # Padding para múltiplos de 512
+            # ------------------------------------------------------------------
+
+            padding_size = (
+                size_with_padding -
+                original_size
+            )
+
+            if padding_size > 0:
+
+                new_rcf.write(
+                    b'\x00' * padding_size
+                )
+
+            # ------------------------------------------------------------------
+            # Guarda novo ponteiro
+            # ------------------------------------------------------------------
+
+            new_pointers.append(
+                (
+                    name_index,
+                    new_file_offset,
+                    original_size
+                )
+            )
+
+            current_position += size_with_padding
+
+        # ======================================================================
+        # ATUALIZAR A TABELA DE PONTEIROS
+        # ======================================================================
+
+        # ----------------------------------------------------------------------
+        # RCF 2.1
+        # ----------------------------------------------------------------------
 
         if file_version in [b'\x02\x01\x00\x01', b'\x02\x01\x01\x01']:
-            endian_format = '<' if file_version == b'\x02\x01\x00\x01' else '>'
-            new_rcf.seek(60)
-            for pointer, original_size in pointers:
-                new_rcf.seek(4, 1)
-                new_rcf.write(struct.pack(f'{endian_format}I', pointer))
-                new_rcf.write(struct.pack(f'{endian_format}I', original_size))
-        else:
-            new_rcf.seek(2064)
-            for pointer, original_size in pointers:
-                new_rcf.seek(4, 1)
-                new_rcf.write(struct.pack('<I', pointer))
-                new_rcf.write(struct.pack('<I', original_size))
 
-    logger(t("recreation_completed", path=str(new_rcf_path)), color=COLOR_LOG_GREEN)
+            endian_format = (
+                '<'
+                if file_version == b'\x02\x01\x00\x01'
+                else '>'
+            )
+
+            # ------------------------------------------------------------------
+            # Criamos uma tabela com a quantidade EXATA de slots do arquivo
+            # original.
+            #
+            # Cada elemento representa:
+            #
+            # slot_original -> (novo_offset, novo_tamanho)
+            # ------------------------------------------------------------------
+
+            reordered_pointers = [None] * total_items
+
+            # ------------------------------------------------------------------
+            # Transforma:
+            #
+            # nome -> novo ponteiro
+            #
+            # em:
+            #
+            # slot original -> novo ponteiro
+            # ------------------------------------------------------------------
+
+            for name_index, pointer, original_size in new_pointers:
+
+                if name_index >= len(original_pointer_order):
+                    continue
+
+                original_slot = original_pointer_order[
+                    name_index
+                ]
+
+                reordered_pointers[
+                    original_slot
+                ] = (
+                    pointer,
+                    original_size
+                )
+
+            # ------------------------------------------------------------------
+            # IMPORTANTE:
+            #
+            # Usamos pointers_offset lido do próprio RCF original.
+            #
+            # Isso é mais seguro do que assumir que a tabela sempre começa
+            # obrigatoriamente no offset 60.
+            # ------------------------------------------------------------------
+
+            new_rcf.seek(pointers_offset)
+
+            for pointer_data in reordered_pointers:
+
+                # --------------------------------------------------------------
+                # Cada entrada possui:
+                #
+                # 4 bytes = campo original que não alteramos
+                # 4 bytes = offset
+                # 4 bytes = tamanho
+                #
+                # --------------------------------------------------------------
+
+                new_rcf.seek(
+                    4,
+                    os.SEEK_CUR
+                )
+
+                if pointer_data is None:
+
+                    # ----------------------------------------------------------
+                    # Se algum arquivo não tiver sido encontrado, mantemos
+                    # os 8 bytes existentes no header copiado.
+                    #
+                    # Isso preserva o comportamento mais próximo possível do
+                    # RCF original sem deslocar os outros slots.
+                    # ----------------------------------------------------------
+
+                    new_rcf.seek(
+                        8,
+                        os.SEEK_CUR
+                    )
+
+                    continue
+
+                pointer, original_size = pointer_data
+
+                new_rcf.write(
+                    struct.pack(
+                        f'{endian_format}I',
+                        pointer
+                    )
+                )
+
+                new_rcf.write(
+                    struct.pack(
+                        f'{endian_format}I',
+                        original_size
+                    )
+                )
+
+        # ----------------------------------------------------------------------
+        # RCF 1.2
+        # ----------------------------------------------------------------------
+
+        elif file_version == b'\x01\x02\x00\x01':
+
+            # ------------------------------------------------------------------
+            # A tabela de ponteiros começa em 2064:
+            #
+            # 2048 = início da estrutura
+            # + 4 = total_items
+            # + 4 = names_offset
+            # + 8 = outros campos
+            #
+            # = 2064
+            # ------------------------------------------------------------------
+
+            new_rcf.seek(2064)
+
+            # ------------------------------------------------------------------
+            # Como 1.2 não sofre sort na extração, os índices correspondem
+            # diretamente aos slots.
+            # ------------------------------------------------------------------
+
+            pointers_by_name = {
+                name_index: (
+                    pointer,
+                    original_size
+                )
+                for name_index, pointer, original_size
+                in new_pointers
+            }
+
+            for slot_index in range(total_items):
+
+                # Campo de 4 bytes que não modificamos
+                new_rcf.seek(
+                    4,
+                    os.SEEK_CUR
+                )
+
+                pointer_data = pointers_by_name.get(
+                    slot_index
+                )
+
+                if pointer_data is None:
+
+                    # Mantém os valores originais caso o arquivo esteja ausente
+                    new_rcf.seek(
+                        8,
+                        os.SEEK_CUR
+                    )
+
+                    continue
+
+                pointer, original_size = pointer_data
+
+                new_rcf.write(
+                    struct.pack(
+                        '<I',
+                        pointer
+                    )
+                )
+
+                new_rcf.write(
+                    struct.pack(
+                        '<I',
+                        original_size
+                    )
+                )
+
+    logger(
+        t("recreation_completed", path=str(new_rcf_path)),
+        color=COLOR_LOG_GREEN
+    )
 
 
 # ==============================================================================
