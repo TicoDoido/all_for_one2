@@ -35,7 +35,7 @@ COLOR_RED = "#EF4444"
 
 STRINGS = {
     "pt_BR": {
-        "name": "HED / WAD - MTX Mototrax",
+        "name": "HED / WAD - MTX Mototrax (PSP)",
         "desc": "Extrai e remonta os containers .HED/.WAD de MTX Mototrax preservando a lista e a ordem do HED original.",
         "btn_unpack": "Extrair HED / WAD",
         "btn_pack": "Remontar HED / WAD",
@@ -79,7 +79,7 @@ STRINGS = {
     },
 
     "en_US": {
-        "name": "HED / WAD - MTX Mototrax",
+        "name": "HED / WAD - MTX Mototrax (PSP)",
         "desc": "Extracts and rebuilds MTX Mototrax .HED/.WAD containers while preserving the original HED file list and order.",
         "btn_unpack": "Extract HED / WAD",
         "btn_pack": "Rebuild HED / WAD",
@@ -123,7 +123,7 @@ STRINGS = {
     },
 
     "es_ES": {
-        "name": "HED / WAD - MTX Mototrax",
+        "name": "HED / WAD - MTX Mototrax (PSP)",
         "desc": "Extrae y reconstruye contenedores .HED/.WAD de MTX Mototrax conservando la lista y el orden del HED original.",
         "btn_unpack": "Extraer HED / WAD",
         "btn_pack": "Reconstruir HED / WAD",
