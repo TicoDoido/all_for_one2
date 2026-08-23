@@ -106,12 +106,286 @@ fp_rebuild = ft.FilePicker(
 )
 
 # ==============================================================================
+# SUPORTE A COALESCED CRIPTOGRAFADO (XOR) - UE3
+# ==============================================================================
+# A estrutura do container e a mesma da versao 1.0
+# (contador, [tamanho + nome, tamanho + conteudo] ...), porem todas as strings
+# estao cifradas com XOR. Duas variantes sao suportadas:
+#
+#   "stream" -> chave de 61 bytes, o fluxo continua de uma string para a outra
+#               e avanca (tamanho - 1) posicoes por string; o terminador nulo
+#               nao e cifrado. Ex.: Transformers / Deadpool (Coalesced.int,
+#               Coalesced.int.bin).
+#   "global" -> chave de 256 bytes aplicada ao arquivo inteiro, inclusive nos
+#               campos de tamanho. Ex.: Medal of Honor (Coalesced.int).
+#
+# Em ambas, cada string pode ser ANSI (tamanho positivo, 1 byte por caractere)
+# ou UTF-16LE (tamanho negativo, igual ao Coalesced 3.0).
+# O contador do cabecalho e o numero de strings, ou seja, 2x o numero de
+# arquivos internos.
+# ==============================================================================
+
+TIPO_XOR = "1.5"
+
+XOR_KEY_STREAM = b"as;dwepo2345098]qw]{}p2039458pseasdfzcvvp;aseiurwefsdcfszdcvn"
+
+XOR_KEY_GLOBAL = bytes.fromhex(
+    "1c37ce11f01b02d584bff659d823aa9dec471ea1c02b526554cf46e9a833fa2d"
+    "bc576e31903ba2f524df967978434abd8c67bec1604bf285f4efe60948539a4d"
+    "5c770e51305b4215c4ff36991863eadd2c875ee1006b92a5940f8629e8733a6d"
+    "fc97ae71d07be235641fd6b9b8838afdcca7fe01a08b32c5342f26498893da8d"
+    "9cb74e91709b8255043f76d958a32a1d6cc79e2140abd2e5d44fc66928b37aad"
+    "3cd7eeb110bb2275a45f16f9f8c3ca3d0ce73e41e0cb7205746f6689c8d31acd"
+    "dcf78ed1b0dbc295447fb61998e36a5dac07de6180eb1225148f06a968f3baed"
+    "7c172ef150fb62b5e49f563938030a7d4c277e81200bb245b4afa6c908135a0d"
+)
+
+
+def _xor_global(data):
+    key = XOR_KEY_GLOBAL
+    n = len(key)
+    return bytes(b ^ key[i % n] for i, b in enumerate(data))
+
+
+def _length_info(raw_length):
+    """Retorna (is_utf16, total_de_unidades_incluindo_terminador)."""
+    if raw_length > 0x7FFFFFFF:
+        return True, (0xFFFFFFFF - raw_length) + 1
+    return False, raw_length
+
+
+def _pack_length(text, is_utf16):
+    if is_utf16:
+        return struct.pack(">I", 0xFFFFFFFF - len(text))
+    if text == "":
+        # conteudo vazio em ANSI e gravado como tamanho 0 (sem terminador),
+        # exatamente como os arquivos originais do jogo
+        return struct.pack(">I", 0)
+    return struct.pack(">I", len(text) + 1)
+
+
+def _split_units(raw, is_utf16):
+    if is_utf16:
+        return [raw[i] | (raw[i + 1] << 8) for i in range(0, len(raw) - 1, 2)]
+    return list(raw)
+
+
+def _join_units(units, is_utf16):
+    if is_utf16:
+        out = bytearray()
+        for u in units:
+            out += struct.pack("<H", u & 0xFFFF)
+        return bytes(out)
+    return bytes(u & 0xFF for u in units)
+
+
+def _stream_decode(raw, is_utf16, phase):
+    """Decifra uma string da variante 'stream' e devolve (texto, nova_fase)."""
+    key = XOR_KEY_STREAM
+    p = len(key)
+    units = _split_units(raw, is_utf16)
+    total = len(units)
+    if total == 0:
+        return "", phase
+    text = "".join(chr(units[i] ^ key[(phase + i) % p]) for i in range(total - 1))
+    return text, (phase + total - 1) % p
+
+
+def _stream_encode(text, is_utf16, phase):
+    """Cifra uma string da variante 'stream' e devolve (bytes, nova_fase)."""
+    if text == "" and not is_utf16:
+        return b"", phase
+    key = XOR_KEY_STREAM
+    p = len(key)
+    units = [ord(c) ^ key[(phase + i) % p] for i, c in enumerate(text)]
+    units.append(0)  # terminador nao cifrado
+    return _join_units(units, is_utf16), (phase + len(text)) % p
+
+
+def _plain_decode(raw, is_utf16):
+    units = _split_units(raw, is_utf16)
+    return "".join(chr(u) for u in units[:-1]) if units else ""
+
+
+def _plain_encode(text, is_utf16):
+    if text == "" and not is_utf16:
+        return b""
+    return _join_units([ord(c) for c in text] + [0], is_utf16)
+
+
+def detect_xor_mode(data):
+    """Descobre qual variante de XOR o arquivo usa ('stream' ou 'global')."""
+
+    def plausible(name):
+        return bool(name) and all(32 <= ord(c) < 127 for c in name) and (
+            "\\" in name or "/" in name
+        )
+
+    # variante "stream": contador e tamanhos ficam em texto claro
+    try:
+        name_len = struct.unpack(">I", data[4:8])[0]
+        if 0 < name_len < 4096:
+            name, _ = _stream_decode(data[8:8 + name_len], False, 0)
+            if plausible(name):
+                return "stream"
+    except Exception:
+        pass
+
+    # variante "global": tudo cifrado com a chave de 256 bytes
+    try:
+        head = _xor_global(data[:1024])
+        name_len = struct.unpack(">I", head[4:8])[0]
+        if 0 < name_len < 1000:
+            name = _plain_decode(head[8:8 + name_len], False)
+            if plausible(name):
+                return "global"
+    except Exception:
+        pass
+
+    raise ValueError("Formato XOR nao reconhecido (chave desconhecida).")
+
+
+def read_xor_container(data):
+    """Le o container e devolve (modo, [(nome, conteudo, is_utf16), ...])."""
+    mode = detect_xor_mode(data)
+    buf = _xor_global(data) if mode == "global" else data
+
+    total_strings = struct.unpack(">I", buf[:4])[0]
+    num_files = total_strings // 2
+    off = 4
+    phase = 0
+    entries = []
+
+    for _ in range(num_files):
+        parts = []
+        for _slot in range(2):
+            raw_len = struct.unpack(">I", buf[off:off + 4])[0]
+            off += 4
+            is_utf16, units = _length_info(raw_len)
+            size = units * 2 if is_utf16 else units
+            raw = buf[off:off + size]
+            off += size
+            if mode == "stream":
+                text, phase = _stream_decode(raw, is_utf16, phase)
+            else:
+                text = _plain_decode(raw, is_utf16)
+            parts.append((text, is_utf16))
+
+        name = parts[0][0]
+        content, content_utf16 = parts[1]
+        entries.append((name, content, content_utf16))
+
+    return mode, entries
+
+
+def write_xor_container(entries, mode):
+    """Monta o container a partir de [(nome, conteudo, is_utf16), ...]."""
+    out = bytearray(struct.pack(">I", len(entries) * 2))
+    phase = 0
+
+    for name, content, content_utf16 in entries:
+        for text, is_utf16 in ((name, False), (content, content_utf16)):
+            out += _pack_length(text, is_utf16)
+            if mode == "stream":
+                chunk, phase = _stream_encode(text, is_utf16, phase)
+            else:
+                chunk = _plain_encode(text, is_utf16)
+            out += chunk
+
+    return _xor_global(bytes(out)) if mode == "global" else bytes(out)
+
+
+def _safe_relative(name):
+    cleaned = name.replace("..\\", "").replace("../", "").lstrip("\\/")
+    return os.path.normpath(cleaned)
+
+
+def extract_xor_file(file_path):
+    """Extrai um Coalesced criptografado (variantes 'stream' e 'global')."""
+    try:
+        data = Path(file_path).read_bytes()
+        mode, entries = read_xor_container(data)
+
+        output_dir = Path(os.path.splitext(file_path)[0])
+        output_dir.mkdir(parents=True, exist_ok=True)
+        logger(t("extracting_to", path=str(output_dir)), color=COLOR_LOG_YELLOW)
+
+        for name, content, content_utf16 in entries:
+            out_path = output_dir / _safe_relative(name)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if content_utf16:
+                # UTF-8 com BOM: preserva os acentos e e aceito por editores
+                out_path.write_bytes(b"\xef\xbb\xbf" + content.encode("utf-8"))
+            else:
+                out_path.write_bytes(content.encode("latin-1", errors="replace"))
+
+            logger(t("file_processed", path=str(out_path)))
+
+        logger(t("extraction_success"), color=COLOR_LOG_GREEN)
+        return True
+
+    except Exception as e:
+        logger(t("extraction_error", error=str(e)), color=COLOR_LOG_RED)
+        return False
+
+
+def rebuild_xor_file(original_file_path, output_file_path, extracted_folder):
+    """Reinsere os INIs editados em um Coalesced criptografado."""
+    try:
+        extracted_folder = Path(extracted_folder)
+        output_file_path = Path(output_file_path)
+
+        logger(t("recreating_to", path=str(output_file_path)), color=COLOR_LOG_YELLOW)
+
+        data = Path(original_file_path).read_bytes()
+        mode, entries = read_xor_container(data)
+
+        new_entries = []
+        for name, content, content_utf16 in entries:
+            src = extracted_folder / _safe_relative(name)
+            if not src.exists():
+                raise FileNotFoundError(t("file_not_found", file=str(src)))
+
+            raw = src.read_bytes()
+            if content_utf16:
+                if raw.startswith(b"\xef\xbb\xbf"):
+                    raw = raw[3:]
+                if raw.startswith(b"\xff\xfe"):
+                    text = raw[2:].decode("utf-16le")
+                else:
+                    try:
+                        text = raw.decode("utf-8")
+                    except UnicodeDecodeError:
+                        text = raw.decode("latin-1")
+            else:
+                text = raw.decode("latin-1")
+
+            text = text.rstrip("\x00")
+            new_entries.append((name, text, content_utf16))
+            logger(t("processing", name=name))
+
+        output_file_path.parent.mkdir(parents=True, exist_ok=True)
+        output_file_path.write_bytes(write_xor_container(new_entries, mode))
+
+        logger(t("recreation_success"), color=COLOR_LOG_GREEN)
+        return True
+
+    except Exception as e:
+        logger(t("recreation_error", error=str(e)), color=COLOR_LOG_RED)
+        return False
+
+
+# ==============================================================================
 # LÓGICA DE NEGÓCIO (CONVERSÃO) – Inalterada
 # ==============================================================================
 
 def read_binary_file(file_path):
     tipo = get_option("tipo_arquivo")
-    
+
+    if tipo == TIPO_XOR:
+        return extract_xor_file(file_path)
+
     if tipo == "1.0":
         try:
             input_path = Path(file_path)
@@ -366,7 +640,10 @@ def read_binary_file(file_path):
 
 def rebuild_binary_file(original_file_path, output_file_path, extracted_folder):
     tipo = get_option("tipo_arquivo")
-    
+
+    if tipo == TIPO_XOR:
+        return rebuild_xor_file(original_file_path, output_file_path, extracted_folder)
+
     if tipo == "1.0":
         try:
             extracted_folder = Path(extracted_folder)
@@ -673,13 +950,13 @@ def rebuild_binary_file(original_file_path, output_file_path, extracted_folder):
 
 def action_extract():
     fp_extract.pick_files(
-        allowed_extensions=["bin", "xxx"],
+        allowed_extensions=["bin", "int", "INT"],
         dialog_title=t("select_original_file")
     )
 
 def action_rebuild():
     fp_rebuild.pick_files(
-        allowed_extensions=["bin", "xxx"],
+        allowed_extensions=["bin", "int", "INT",],
         dialog_title=t("select_original_file")
     )
 
@@ -705,7 +982,7 @@ def register_plugin(log_func, option_getter, host_language="pt_BR", page=None):
             {
                 "name": "tipo_arquivo",
                 "label": t("version"),
-                "values": ["1.0", "2.0", "3.0"]
+                "values": ["1.0", TIPO_XOR, "2.0", "3.0"]
             }
         ],
         "commands": [
