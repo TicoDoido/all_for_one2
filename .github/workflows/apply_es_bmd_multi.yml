@@ -1,0 +1,61 @@
+name: Apply Eternal Sonata BMD multi-format support
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply_es_bmd_multi.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build and validate single plugin
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import py_compile
+
+          main_path = Path('plugins/files_eternal_sonata.py')
+          temp_path = Path('.tmp_es_bmd_section.py')
+          main = main_path.read_text(encoding='utf-8')
+          new_bmd = temp_path.read_text(encoding='utf-8').rstrip() + '\n\n'
+
+          marker = 'BMD_MAGIC = b"BMD "'
+          reg_marker = '# ==============================================================================\n# ENTRY POINT (REGISTRO) - FILES + NTX3/DDS + BMD\n# ==============================================================================\n'
+          if marker not in main or reg_marker not in main:
+              raise RuntimeError('Marcadores do plugin consolidado não encontrados')
+
+          prefix = main.split(marker, 1)[0].rstrip() + '\n\n'
+          register = reg_marker + main.split(reg_marker, 1)[1]
+          final = prefix + new_bmd + register
+          main_path.write_text(final, encoding='utf-8', newline='\n')
+          py_compile.compile(str(main_path), doraise=True)
+
+          text = main_path.read_text(encoding='utf-8')
+          for required in (
+              'def _extract_files(', 'def _reimport_files(',
+              'def _extract_ntx(', 'def _import_dds(',
+              'def _try_parse_bmd_text16(', 'def _try_parse_bmd_text12(',
+              'def _try_detect_bmd_pack(', 'def _detect_bmd_structure(',
+          ):
+              if required not in text:
+                  raise RuntimeError(f'Função ausente: {required}')
+          PY
+
+      - name: Commit final plugin
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .tmp_es_bmd_section.py
+          git rm .github/workflows/apply_es_bmd_multi.yml
+          git add plugins/files_eternal_sonata.py
+          git commit -m "Support multiple Eternal Sonata BMD formats"
+          git push
