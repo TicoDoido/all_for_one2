@@ -686,7 +686,7 @@ def _extract_files(container_path: Path):
                 raise ValueError(t("invalid_structure"))
 
             header_offset = 16
-            entry_size = 40
+            entry_size = 48
 
             for i in range(num_files):
                 container.seek(header_offset + i * entry_size)

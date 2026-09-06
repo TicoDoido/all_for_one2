@@ -1,4 +1,4 @@
 git add .
-git commit -m "Upgrades..."
+git commit -m "Ajustes..."
 git push
 pause

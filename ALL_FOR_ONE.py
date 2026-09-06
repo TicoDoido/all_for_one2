@@ -10,6 +10,8 @@ import subprocess
 import time
 import importlib.util
 import glob
+from contextvars import ContextVar
+from functools import wraps
 from importlib.metadata import version, PackageNotFoundError
 import xml.etree.ElementTree as _element_tree
 
@@ -188,6 +190,7 @@ class ModernFilePickerWrapper(ft.Container):
                 self.page.update()
             except Exception as e:
                 print("FP Pick Error:", e)
+                _picker_failed(e)
         self.page.run_task(_pick)
     def get_directory_path(self, dialog_title=None, **kwargs):
         if not self.page: return
@@ -198,6 +201,7 @@ class ModernFilePickerWrapper(ft.Container):
                 self.page.update()
             except Exception as e:
                 print("FP Dir Error:", e)
+                _picker_failed(e)
         self.page.run_task(_dir)
     def save_file(self, dialog_title=None, file_name=None, **kwargs):
         if not self.page: return
@@ -208,9 +212,132 @@ class ModernFilePickerWrapper(ft.Container):
                 self.page.update()
             except Exception as e:
                 print("FP Save Error:", e)
+                _picker_failed(e)
         self.page.run_task(_save)
 if IS_MODERN:
     ft.FilePicker = ModernFilePickerWrapper
+
+# A operação acompanha o comando e as seleções seguintes até o processamento.
+_active_operation = ContextVar("plugin_operation", default=None)
+
+def _picker_failed(error):
+    operation = _active_operation.get()
+    if operation is not None and not operation.finished:
+        operation.failed = True
+        operation.last_error = str(error)
+        operation.log(str(error), color="#EF4444")
+        operation.finish()
+
+class PluginOperation:
+    def __init__(self, page, language, label, log):
+        self.page, self.language, self.label, self.log = page, language, label, log
+        self.failed = False
+        self.last_message = ""
+        self.last_error = ""
+        self.pending = 0
+        self.finished = False
+
+    def run(self, callback, *args):
+        token = _active_operation.set(self)
+        try:
+            return callback(*args)
+        except Exception as exc:
+            self.failed = True
+            self.last_error = str(exc)
+            self.log(str(exc), color="#EF4444")
+            traceback.print_exc()
+        finally:
+            _active_operation.reset(token)
+            if not self.pending and not self.finished:
+                self.finish()
+
+    def finish(self):
+        self.finished = True
+        if self.page is None:
+            return
+        success, failure, details = {
+            "pt_BR": ("Processo concluído", "Processo encerrado com erros", "Consulte o log para mais detalhes."),
+            "en_US": ("Process completed", "Process finished with errors", "See the log for more details."),
+            "es_ES": ("Proceso completado", "Proceso terminado con errores", "Consulte el registro para más detalles."),
+        }.get(self.language, ("Process completed", "Process finished with errors", "See the log for more details."))
+        message = self.last_error if self.failed else self.last_message
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(failure if self.failed else success),
+            content=ft.Text(f"{self.label}\n\n{message[:1500]}\n\n{details}"),
+        )
+        def close(_):
+            if hasattr(self.page, "close"):
+                self.page.close(dialog)
+            elif hasattr(self.page, "pop_dialog"):
+                self.page.pop_dialog()
+            else:
+                dialog.open = False
+                self.page.update()
+        dialog.actions = [ft.TextButton("OK", on_click=close)]
+        if hasattr(self.page, "open"):
+            self.page.open(dialog)
+        elif hasattr(self.page, "show_dialog"):
+            self.page.show_dialog(dialog)
+        else:
+            self.page.overlay.append(dialog)
+            dialog.open = True
+            self.page.update()
+
+def operation_logger(callback):
+    def log(msg, color="#4ADE80"):
+        operation = _active_operation.get()
+        if operation is not None:
+            operation.last_message = str(msg)
+            if str(color).lower() in ("#ef4444", "red", "#ff0000", "red400", "red500"):
+                operation.failed = True
+                operation.last_error = str(msg)
+        callback(msg, color=color)
+    return log
+
+def operation_command(callback, page, language, label, log):
+    @wraps(callback)
+    def run():
+        return PluginOperation(page, language, label, log).run(callback)
+    return run
+
+_CompatibleFilePicker = ft.FilePicker
+
+class OperationFilePicker(_CompatibleFilePicker):
+    def _select(self, method, *args, **kwargs):
+        operation = _active_operation.get()
+        if operation is None:
+            return method(*args, **kwargs)
+        original = self.on_result
+        operation.pending += 1
+        def on_result(event):
+            self.on_result = original
+            operation.pending -= 1
+            if not (getattr(event, "files", None) or getattr(event, "path", None)):
+                # Cancelar uma seleção não significa que o processamento terminou.
+                operation.finished = True
+                if original:
+                    original(event)
+                return
+            operation.run(original, event) if original else operation.finish()
+        self.on_result = on_result
+        try:
+            return method(*args, **kwargs)
+        except Exception:
+            self.on_result = original
+            operation.pending -= 1
+            raise
+
+    def pick_files(self, *args, **kwargs):
+        return self._select(super().pick_files, *args, **kwargs)
+
+    def get_directory_path(self, *args, **kwargs):
+        return self._select(super().get_directory_path, *args, **kwargs)
+
+    def save_file(self, *args, **kwargs):
+        return self._select(super().save_file, *args, **kwargs)
+
+ft.FilePicker = OperationFilePicker
 # ==============================================================================
 # 2. CONFIGURAÇÕES VISUAIS E TRADUÇÕES
 # ==============================================================================
@@ -334,18 +461,25 @@ class PluginManager:
             def get_opt(name): return self.current_plugin_options.get(name, {}).get("value")
            
             try:
+                plugin_log = operation_logger(self.log_callback)
                 sig = inspect.signature(module.register_plugin)
                 # Verifica estritamente quantos argumentos o plugin aceita para não crachar a injeção
                 if len(sig.parameters) >= 4:
-                    res = module.register_plugin(self.log_callback, get_opt, language, page)
+                    res = module.register_plugin(plugin_log, get_opt, language, page)
                 else:
-                    res = module.register_plugin(self.log_callback, get_opt, language)
+                    res = module.register_plugin(plugin_log, get_opt, language)
             except Exception as e:
                 self.log_callback(f"Erro de interface com o plugin {plugin_name}: {e}", color=COLOR_LOG_RED)
                 traceback.print_exc()
                 return None
                
-            return res() if callable(res) else res
+            res = res() if callable(res) else res
+            if isinstance(res, dict):
+                for command in res.get("commands", []):
+                    command["action"] = operation_command(
+                        command["action"], page, language, command.get("label", plugin_name), plugin_log
+                    )
+            return res
         return None
     def get_all_plugins_list(self):
         if not os.path.exists(self.plugin_dir):
