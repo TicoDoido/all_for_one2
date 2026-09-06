@@ -889,8 +889,9 @@ def action_import_dds():
     )
 
 BMD_MAGIC = b"BMD "
-BMD_TXT_VERSION = 1
-BMD_RECORD_SIZE = 16
+BMD_TXT_VERSION = 2
+BMD_RECORD_SIZE_TEXT16 = 16
+BMD_RECORD_SIZE_TEXT12 = 12
 
 BMD_TRANSLATIONS = {
     "pt_BR": {
@@ -900,10 +901,12 @@ BMD_TRANSLATIONS = {
         "import_bmd": "Recompilar BMD <- TXT",
         "select_bmd_files": "Selecione arquivo(s) .BMD",
         "bmd_extracting": "Extraindo textos BMD: {name}",
+        "bmd_detected": "Formato BMD detectado: {variant}",
         "bmd_extracted": "[OK] BMD extraído: {src} -> {dst} ({blocks} blocos / {entries} textos / {encoding})",
         "bmd_rebuilding": "Recompilando BMD: {name}",
         "bmd_rebuilt": "[OK] BMD recompilado: {name} ({size} bytes)",
         "bmd_backup": "Backup original: {path}",
+        "bmd_not_text": "BMD {variant} não usa tabela de texto deste plugin. Recursos detectados: {details}",
         "bmd_error": "[ERRO] BMD {name}: {error}",
         "bmd_done": "Operação BMD concluída.",
         "cancelled": "Seleção cancelada.",
@@ -915,10 +918,12 @@ BMD_TRANSLATIONS = {
         "import_bmd": "Rebuild BMD <- TXT",
         "select_bmd_files": "Select .BMD file(s)",
         "bmd_extracting": "Extracting BMD text: {name}",
+        "bmd_detected": "Detected BMD format: {variant}",
         "bmd_extracted": "[OK] BMD extracted: {src} -> {dst} ({blocks} blocks / {entries} texts / {encoding})",
         "bmd_rebuilding": "Rebuilding BMD: {name}",
         "bmd_rebuilt": "[OK] BMD rebuilt: {name} ({size} bytes)",
         "bmd_backup": "Original backup: {path}",
+        "bmd_not_text": "BMD {variant} does not use this plugin's text table. Detected resources: {details}",
         "bmd_error": "[ERROR] BMD {name}: {error}",
         "bmd_done": "BMD operation completed.",
         "cancelled": "Selection cancelled.",
@@ -930,10 +935,12 @@ BMD_TRANSLATIONS = {
         "import_bmd": "Recompilar BMD <- TXT",
         "select_bmd_files": "Seleccione archivo(s) .BMD",
         "bmd_extracting": "Extrayendo textos BMD: {name}",
+        "bmd_detected": "Formato BMD detectado: {variant}",
         "bmd_extracted": "[OK] BMD extraído: {src} -> {dst} ({blocks} bloques / {entries} textos / {encoding})",
         "bmd_rebuilding": "Recompilando BMD: {name}",
         "bmd_rebuilt": "[OK] BMD recompilado: {name} ({size} bytes)",
         "bmd_backup": "Copia original: {path}",
+        "bmd_not_text": "BMD {variant} no usa la tabla de texto de este plugin. Recursos detectados: {details}",
         "bmd_error": "[ERROR] BMD {name}: {error}",
         "bmd_done": "Operación BMD completada.",
         "cancelled": "Selección cancelada.",
@@ -961,7 +968,7 @@ def _bmd_u32(data: bytes, offset: int) -> int:
     return struct.unpack_from(">I", data, offset)[0]
 
 
-def _parse_bmd_structure(data: bytes):
+def _parse_bmd_block_header(data: bytes):
     if len(data) < 12 or data[:4] != BMD_MAGIC:
         raise ValueError("Magic BMD inválido (esperado 'BMD ').")
 
@@ -985,114 +992,268 @@ def _parse_bmd_structure(data: bytes):
         raise ValueError("Tabela de blocos BMD sem terminador 00000000.")
 
     if not block_offsets:
-        raise ValueError("BMD não contém blocos.")
+        raise ValueError("BMD sem tabela de blocos.")
     if block_offsets != sorted(block_offsets) or len(set(block_offsets)) != len(block_offsets):
         raise ValueError("Offsets de blocos BMD não são crescentes/únicos.")
     if block_offsets[0] < pos:
         raise ValueError("Primeiro bloco BMD invade o cabeçalho.")
 
-    header_extra = data[pos:block_offsets[0]]
-    blocks = []
+    return block_offsets, data[pos:block_offsets[0]]
 
+
+def _try_parse_bmd_text16(data: bytes):
+    try:
+        block_offsets, header_extra = _parse_bmd_block_header(data)
+    except Exception:
+        return None
+
+    blocks = []
     for block_index, block_start in enumerate(block_offsets):
         block_end = (
             block_offsets[block_index + 1]
             if block_index + 1 < len(block_offsets)
             else len(data)
         )
-        if block_end <= block_start or block_start + BMD_RECORD_SIZE > block_end:
-            raise ValueError(f"Bloco {block_index} possui tamanho inválido.")
+        if block_start + 16 > block_end:
+            return None
 
         first_ptr = _bmd_u32(data, block_start + 12)
-        record_count = None
         delta = first_ptr - block_start
+        if first_ptr <= block_start or first_ptr >= block_end:
+            return None
+        if delta < 4 or (delta - 4) % 16:
+            return None
 
-        if (
-            first_ptr > block_start
-            and first_ptr < block_end
-            and delta >= 4
-            and (delta - 4) % BMD_RECORD_SIZE == 0
-        ):
-            candidate = (delta - 4) // BMD_RECORD_SIZE
-            terminator_pos = block_start + candidate * BMD_RECORD_SIZE
-            if (
-                candidate > 0
-                and terminator_pos + 4 <= block_end
-                and data[terminator_pos:terminator_pos + 4] == b"\x00\x00\x00\x00"
-            ):
-                record_count = candidate
-
-        if record_count is None:
-            candidate = 0
-            scan = block_start
-            while scan + BMD_RECORD_SIZE <= block_end:
-                ptr = _bmd_u32(data, scan + 12)
-                valid_ptr = scan + BMD_RECORD_SIZE <= ptr < block_end
-                if data[scan:scan + 4] == b"\x00\x00\x00\x00" and not valid_ptr:
-                    break
-                if not valid_ptr:
-                    break
-                candidate += 1
-                scan += BMD_RECORD_SIZE
-
-            if (
-                candidate <= 0
-                or scan + 4 > block_end
-                or data[scan:scan + 4] != b"\x00\x00\x00\x00"
-            ):
-                raise ValueError(
-                    f"Bloco {block_index}: não foi possível localizar o fim da tabela de registros."
-                )
-            record_count = candidate
-
-        table_end = block_start + record_count * BMD_RECORD_SIZE
-        if data[table_end:table_end + 4] != b"\x00\x00\x00\x00":
-            raise ValueError(f"Bloco {block_index}: terminador da tabela ausente.")
+        record_count = (delta - 4) // 16
+        table_end = block_start + record_count * 16
+        if record_count <= 0 or data[table_end:table_end + 4] != b"\x00" * 4:
+            return None
 
         records = []
+        text_intervals = []
         for record_index in range(record_count):
-            rec_pos = block_start + record_index * BMD_RECORD_SIZE
+            rec_pos = block_start + record_index * 16
             ptr = _bmd_u32(data, rec_pos + 12)
             if not (table_end + 4 <= ptr < block_end):
-                raise ValueError(
-                    f"Bloco {block_index}, registro {record_index}: "
-                    f"ponteiro 0x{ptr:X} fora da área de texto."
-                )
-
+                return None
             zero = data.find(b"\x00", ptr, block_end)
             if zero < 0:
-                raise ValueError(
-                    f"Bloco {block_index}, registro {record_index}: texto sem terminador NUL."
-                )
-
+                return None
+            raw = data[ptr:zero]
             records.append(
                 {
                     "meta": data[rec_pos:rec_pos + 12],
-                    "old_ptr": ptr,
-                    "raw": data[ptr:zero],
-                    "old_end": zero + 1,
+                    "value": ptr,
+                    "is_text": True,
+                    "ptr": ptr,
+                    "raw": raw,
+                    "end": zero + 1,
                 }
             )
+            text_intervals.append((ptr, zero + 1, record_index))
 
-        first_text = min(r["old_ptr"] for r in records)
-        table_data_end = table_end + 4
-        if first_text < table_data_end:
-            raise ValueError(f"Bloco {block_index}: texto sobrepõe a tabela.")
-
-        max_text_end = max(r["old_end"] for r in records)
         blocks.append(
             {
+                "old_start": block_start,
+                "old_end": block_end,
+                "table_end": table_end,
+                "record_size": 16,
                 "records": records,
-                "table_terminator": data[table_end:table_end + 4],
-                "prefix": data[table_data_end:first_text],
-                "trailer": data[max_text_end:block_end],
+                "texts": sorted(text_intervals),
+                "terminator": data[table_end:table_end + 4],
             }
         )
 
     return {
+        "variant": "TEXT16",
         "header_extra": header_extra,
         "blocks": blocks,
     }
+
+
+def _try_parse_bmd_text12(data: bytes):
+    try:
+        block_offsets, header_extra = _parse_bmd_block_header(data)
+    except Exception:
+        return None
+
+    blocks = []
+    for block_index, block_start in enumerate(block_offsets):
+        block_end = (
+            block_offsets[block_index + 1]
+            if block_index + 1 < len(block_offsets)
+            else len(data)
+        )
+
+        record_count = None
+        max_records = (block_end - block_start) // 12
+        for candidate in range(1, max_records + 1):
+            table_end = block_start + candidate * 12
+            if data[table_end:table_end + 4] != b"\x00" * 4:
+                continue
+            if all(
+                _bmd_u32(data, block_start + i * 12) == 0xFFFFD8F0
+                for i in range(candidate)
+            ):
+                record_count = candidate
+                break
+
+        if record_count is None:
+            return None
+
+        table_end = block_start + record_count * 12
+        records = []
+        text_intervals = []
+
+        for record_index in range(record_count):
+            rec_pos = block_start + record_index * 12
+            first, rec_type, value = struct.unpack_from(">III", data, rec_pos)
+            if first != 0xFFFFD8F0:
+                return None
+
+            rec = {
+                "meta": data[rec_pos:rec_pos + 8],
+                "type": rec_type,
+                "value": value,
+                "is_text": False,
+            }
+
+            if value and table_end + 4 <= value < block_end:
+                zero = data.find(b"\x00", value, block_end)
+                if zero >= 0:
+                    raw = data[value:zero]
+                    if raw.startswith(b"<d"):
+                        try:
+                            raw.decode("cp932", errors="strict")
+                            rec.update(
+                                {
+                                    "is_text": True,
+                                    "ptr": value,
+                                    "raw": raw,
+                                    "end": zero + 1,
+                                }
+                            )
+                            text_intervals.append((value, zero + 1, record_index))
+                        except UnicodeDecodeError:
+                            pass
+
+            records.append(rec)
+
+        blocks.append(
+            {
+                "old_start": block_start,
+                "old_end": block_end,
+                "table_end": table_end,
+                "record_size": 12,
+                "records": records,
+                "texts": sorted(text_intervals),
+                "terminator": data[table_end:table_end + 4],
+            }
+        )
+
+    if not any(block["texts"] for block in blocks):
+        return None
+
+    return {
+        "variant": "TEXT12",
+        "header_extra": header_extra,
+        "blocks": blocks,
+    }
+
+
+def _try_detect_bmd_pack(data: bytes):
+    if len(data) < 12 or data[:4] != BMD_MAGIC:
+        return None
+    if _bmd_u32(data, 4) != len(data):
+        return None
+
+    count = _bmd_u32(data, 8)
+    if count <= 0 or count > 100000:
+        return None
+
+    candidates = []
+    for table_start in range(0x0C, 0x44, 4):
+        table_end = table_start + count * 4
+        if table_end > len(data):
+            continue
+
+        pointers = [_bmd_u32(data, table_start + i * 4) for i in range(count)]
+        nonzero = [p for p in pointers if p]
+        if not nonzero:
+            continue
+        if nonzero != sorted(nonzero) or len(nonzero) != len(set(nonzero)):
+            continue
+        if nonzero[0] < table_end or nonzero[-1] >= len(data):
+            continue
+
+        sample = nonzero[: min(100, len(nonzero))]
+        printable = 0
+        for ptr in sample:
+            tag = data[ptr:ptr + 4]
+            if tag == b"\x89PNG" or (
+                len(tag) == 4 and all(0x20 <= b < 0x7F for b in tag)
+            ):
+                printable += 1
+
+        if printable < max(1, int(len(sample) * 0.8)):
+            continue
+
+        gap = nonzero[0] - table_end
+        candidates.append((printable, -gap, table_start, pointers))
+
+    if not candidates:
+        return None
+
+    candidates.sort(reverse=True)
+    _, _, table_start, pointers = candidates[0]
+    tags = []
+    for ptr in pointers:
+        if not ptr:
+            continue
+        tag = data[ptr:ptr + 4]
+        if tag == b"\x89PNG":
+            name = "PNG"
+        else:
+            name = tag.decode("ascii", errors="replace")
+        tags.append(name)
+
+    tag_counts = {}
+    for tag in tags:
+        tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+    if tags and all(tag == "NOBJ" for tag in tags):
+        variant = "PACK_NOBJ"
+    else:
+        variant = "PACK_RESOURCE"
+
+    details = ", ".join(
+        f"{tag}:{count}" for tag, count in
+        sorted(tag_counts.items(), key=lambda item: (-item[1], item[0]))[:8]
+    )
+
+    return {
+        "variant": variant,
+        "count": count,
+        "table_start": table_start,
+        "pointers": pointers,
+        "details": details or "desconhecido",
+    }
+
+
+def _detect_bmd_structure(data: bytes):
+    parsed = _try_parse_bmd_text16(data)
+    if parsed:
+        return parsed
+
+    parsed = _try_parse_bmd_text12(data)
+    if parsed:
+        return parsed
+
+    packed = _try_detect_bmd_pack(data)
+    if packed:
+        return packed
+
+    raise ValueError("Variante BMD ainda não reconhecida.")
 
 
 def _detect_bmd_encoding(structure) -> str:
@@ -1100,6 +1261,7 @@ def _detect_bmd_encoding(structure) -> str:
         rec["raw"]
         for block in structure["blocks"]
         for rec in block["records"]
+        if rec.get("is_text")
     ]
 
     for encoding in ("cp932", "utf-8", "cp1252"):
@@ -1124,22 +1286,35 @@ def _decode_bmd_text(raw: bytes, encoding: str) -> str:
 
 def _extract_bmd_to_txt(bmd_path: Path):
     data = bmd_path.read_bytes()
-    structure = _parse_bmd_structure(data)
+    structure = _detect_bmd_structure(data)
+
+    if structure["variant"].startswith("PACK_"):
+        raise ValueError(
+            bt(
+                "bmd_not_text",
+                variant=structure["variant"],
+                details=structure.get("details", "desconhecido"),
+            )
+        )
+
     source_encoding = _detect_bmd_encoding(structure)
     txt_path = bmd_path.with_suffix(bmd_path.suffix + ".txt")
 
     lines = [
         f"# Eternal Sonata BMD TXT v{BMD_TXT_VERSION}",
         f"# source_file={bmd_path.name}",
+        f"# bmd_variant={structure['variant']}",
         f"# source_encoding={source_encoding}",
         f"# output_encoding={source_encoding}",
         "# Edite somente o texto depois da TAB. O texto é uma string JSON UTF-8.",
-        "# Para usar outra tabela na recompilação, altere output_encoding.",
+        "# Os IDs mantêm bloco e índice do registro original.",
     ]
 
     entry_count = 0
     for block_index, block in enumerate(structure["blocks"]):
         for record_index, record in enumerate(block["records"]):
+            if not record.get("is_text"):
+                continue
             text = _decode_bmd_text(record["raw"], source_encoding)
             payload = json.dumps(text, ensure_ascii=False)
             lines.append(f"B{block_index:03d}:E{record_index:03d}\t{payload}")
@@ -1151,12 +1326,19 @@ def _extract_bmd_to_txt(bmd_path: Path):
         newline="\n",
     )
 
-    return txt_path, len(structure["blocks"]), entry_count, source_encoding
+    return (
+        txt_path,
+        len(structure["blocks"]),
+        entry_count,
+        source_encoding,
+        structure["variant"],
+    )
 
 
 def _read_bmd_txt(txt_path: Path):
     source_encoding = None
     output_encoding = None
+    variant = None
     entries = {}
 
     with txt_path.open("r", encoding="utf-8-sig", newline=None) as f:
@@ -1170,6 +1352,8 @@ def _read_bmd_txt(txt_path: Path):
                     source_encoding = line.split("=", 1)[1].strip()
                 elif line.startswith("# output_encoding="):
                     output_encoding = line.split("=", 1)[1].strip()
+                elif line.startswith("# bmd_variant="):
+                    variant = line.split("=", 1)[1].strip()
                 continue
 
             if "\t" not in line:
@@ -1219,7 +1403,41 @@ def _read_bmd_txt(txt_path: Path):
     except LookupError as exc:
         raise ValueError(f"Encoding BMD desconhecido: {exc}.") from exc
 
-    return source_encoding, output_encoding, entries
+    return source_encoding, output_encoding, variant, entries
+
+
+def _encode_bmd_entry(
+    block_index,
+    record_index,
+    record,
+    translated,
+    source_encoding,
+    output_encoding,
+):
+    original_text = _decode_bmd_text(record["raw"], source_encoding)
+
+    if (
+        translated == original_text
+        and output_encoding.lower() == source_encoding.lower()
+    ):
+        encoded = record["raw"]
+    else:
+        try:
+            encoded = translated.encode(output_encoding, errors="strict")
+        except UnicodeEncodeError as exc:
+            bad = translated[exc.start:exc.end]
+            raise ValueError(
+                f"B{block_index:03d}:E{record_index:03d}: "
+                f"'{bad}' não pode ser codificado em {output_encoding}. "
+                "Altere '# output_encoding=' no TXT se necessário."
+            ) from exc
+
+    if b"\x00" in encoded:
+        raise ValueError(
+            f"B{block_index:03d}:E{record_index:03d}: texto contém byte NUL."
+        )
+
+    return encoded
 
 
 def _rebuild_bmd_bytes(
@@ -1227,13 +1445,28 @@ def _rebuild_bmd_bytes(
     source_encoding: str,
     output_encoding: str,
     entries,
+    expected_variant=None,
 ):
-    structure = _parse_bmd_structure(original_data)
+    structure = _detect_bmd_structure(original_data)
+    if structure["variant"].startswith("PACK_"):
+        raise ValueError(
+            bt(
+                "bmd_not_text",
+                variant=structure["variant"],
+                details=structure.get("details", "desconhecido"),
+            )
+        )
+
+    if expected_variant and expected_variant != structure["variant"]:
+        raise ValueError(
+            f"O TXT é {expected_variant}, mas o BMD original é {structure['variant']}."
+        )
 
     expected_keys = {
         (bi, ri)
         for bi, block in enumerate(structure["blocks"])
-        for ri, _ in enumerate(block["records"])
+        for ri, record in enumerate(block["records"])
+        if record.get("is_text")
     }
     found_keys = set(entries)
     missing = sorted(expected_keys - found_keys)
@@ -1267,59 +1500,88 @@ def _rebuild_bmd_bytes(
     new_block_offsets = []
 
     for block_index, block in enumerate(structure["blocks"]):
-        new_block_offsets.append(len(out))
-        pointer_patch_positions = []
-        encoded_texts = []
+        old_block_start = block["old_start"]
+        old_block_end = block["old_end"]
+        old_payload_start = block["table_end"] + 4
 
+        new_block_start = len(out)
+        new_block_offsets.append(new_block_start)
+
+        patch_positions = {}
         for record_index, record in enumerate(block["records"]):
             out += record["meta"]
-            pointer_patch_positions.append(len(out))
-            out += b"\x00\x00\x00\x00"
+            patch_positions[record_index] = len(out)
+            out += struct.pack(">I", record["value"])
 
-            translated = entries[(block_index, record_index)]
-            original_text = _decode_bmd_text(
-                record["raw"],
-                source_encoding,
-            )
+        out += block["terminator"]
 
-            if output_encoding.lower() == source_encoding.lower() and translated == original_text:
-                encoded = record["raw"]
-            else:
-                try:
-                    encoded = translated.encode(
-                        output_encoding,
-                        errors="strict",
-                    )
-                except UnicodeEncodeError as exc:
-                    bad = translated[exc.start:exc.end]
-                    raise ValueError(
-                        f"B{block_index:03d}:E{record_index:03d}: "
-                        f"'{bad}' não pode ser codificado em {output_encoding}. "
-                        "Altere '# output_encoding=' no TXT se necessário."
-                    ) from exc
+        text_new_ptrs = {}
+        delta_events = []
+        cursor = old_payload_start
+        cumulative_delta = 0
 
-            if b"\x00" in encoded:
+        for old_text_start, old_text_end, record_index in block["texts"]:
+            if old_text_start < cursor:
                 raise ValueError(
-                    f"B{block_index:03d}:E{record_index:03d}: texto contém byte NUL."
+                    f"Bloco {block_index}: textos sobrepostos/fora de ordem."
                 )
 
-            encoded_texts.append(encoded)
+            out += original_data[cursor:old_text_start]
 
-        out += block["table_terminator"]
-        out += block["prefix"]
-
-        for record_index, encoded in enumerate(encoded_texts):
-            text_ptr = len(out)
-            struct.pack_into(
-                ">I",
-                out,
-                pointer_patch_positions[record_index],
-                text_ptr,
+            record = block["records"][record_index]
+            translated = entries[(block_index, record_index)]
+            encoded = _encode_bmd_entry(
+                block_index,
+                record_index,
+                record,
+                translated,
+                source_encoding,
+                output_encoding,
             )
+
+            text_new_ptrs[record_index] = len(out)
             out += encoded
             out += b"\x00"
 
-        out += block["trailer"]
+            old_length = old_text_end - old_text_start
+            new_length = len(encoded) + 1
+            cumulative_delta += new_length - old_length
+            delta_events.append((old_text_end, cumulative_delta))
+            cursor = old_text_end
+
+        out += original_data[cursor:old_block_end]
+
+        def map_old_payload_pointer(old_pointer):
+            shift = 0
+            for boundary, cumulative in delta_events:
+                if old_pointer >= boundary:
+                    shift = cumulative
+                else:
+                    break
+            return new_block_start + (old_pointer - old_block_start) + shift
+
+        for record_index, record in enumerate(block["records"]):
+            patch_pos = patch_positions[record_index]
+            if record.get("is_text"):
+                struct.pack_into(
+                    ">I",
+                    out,
+                    patch_pos,
+                    text_new_ptrs[record_index],
+                )
+            else:
+                old_value = record["value"]
+                if (
+                    block["record_size"] == 12
+                    and old_value
+                    and old_payload_start <= old_value < old_block_end
+                ):
+                    struct.pack_into(
+                        ">I",
+                        out,
+                        patch_pos,
+                        map_old_payload_pointer(old_value),
+                    )
 
     struct.pack_into(">I", out, 4, len(out))
 
@@ -1331,8 +1593,14 @@ def _rebuild_bmd_bytes(
             block_offset,
         )
 
-    _parse_bmd_structure(bytes(out))
-    return bytes(out)
+    rebuilt = bytes(out)
+    check = _detect_bmd_structure(rebuilt)
+    if check["variant"] != structure["variant"]:
+        raise ValueError(
+            f"Rebuild mudou a variante BMD de {structure['variant']} para {check['variant']}."
+        )
+
+    return rebuilt
 
 
 def _rebuild_bmd_from_txt(bmd_path: Path):
@@ -1343,13 +1611,14 @@ def _rebuild_bmd_from_txt(bmd_path: Path):
         )
 
     original_data = bmd_path.read_bytes()
-    source_encoding, output_encoding, entries = _read_bmd_txt(txt_path)
+    source_encoding, output_encoding, variant, entries = _read_bmd_txt(txt_path)
 
     rebuilt = _rebuild_bmd_bytes(
         original_data,
         source_encoding,
         output_encoding,
         entries,
+        expected_variant=variant,
     )
 
     backup_path = bmd_path.with_suffix(bmd_path.suffix + ".bak")
@@ -1367,7 +1636,11 @@ def _extract_bmd(file_paths: List[Path]):
             color=COLOR_LOG_YELLOW,
         )
         try:
-            txt_path, blocks, entries, encoding = _extract_bmd_to_txt(path)
+            txt_path, blocks, entries, encoding, variant = _extract_bmd_to_txt(path)
+            _log(
+                bt("bmd_detected", variant=variant),
+                color=COLOR_LOG_YELLOW,
+            )
             _log(
                 bt(
                     "bmd_extracted",
@@ -1395,6 +1668,11 @@ def _import_bmd(file_paths: List[Path]):
             color=COLOR_LOG_YELLOW,
         )
         try:
+            structure = _detect_bmd_structure(path.read_bytes())
+            _log(
+                bt("bmd_detected", variant=structure["variant"]),
+                color=COLOR_LOG_YELLOW,
+            )
             backup_path, size = _rebuild_bmd_from_txt(path)
             _log(
                 bt("bmd_rebuilt", name=path.name, size=size),
